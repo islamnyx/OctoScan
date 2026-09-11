@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Security Precheck</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --accent:#3d9cf0; --crit:#e5484d; --high:#f5a524; --med:#f5d90a; --low:#30a46c; --info:#8b9bb4; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:24px 32px; border-bottom:1px solid #243044; }
+    h1 { margin:0 0 4px; font-size:22px; }
+    p.sub { margin:0; color:var(--muted); }
+    main { padding:24px 32px; max-width:1100px; }
+    form { display:flex; gap:8px; margin-bottom:24px; }
+    input { flex:1; padding:10px 12px; border-radius:8px; border:1px solid #2c3c55; background:#121a24; color:var(--text); }
+    button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:0.6; cursor:not-allowed; }
+    .counts { display:flex; gap:12px; margin:16px 0; flex-wrap:wrap; }
+    .chip { padding:6px 10px; border-radius:999px; background:var(--card); font-size:13px; }
+    .status { color:var(--muted); margin-bottom:12px; }
+    .status.error { color:var(--crit); }
+    .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; }
+    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid #243044; vertical-align:top; }
+    th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .sev { font-weight:700; text-transform:uppercase; font-size:12px; }
+    .critical { color:var(--crit); } .high { color:var(--high); } .medium { color:var(--med); } .low { color:var(--low); } .info { color:var(--info); }
+    .scanner-section { margin-bottom:24px; }
+    .scanner-header { padding:10px 12px; background:#121a24; border:1px solid #243044; border-radius:8px; margin-bottom:8px; font-weight:600; cursor:pointer; display:flex; justify-content:space-between; }
+    .scanner-header:hover { background:#1a2332; }
+    .scanner-body { display:none; }
+    .scanner-body.open { display:block; }
+    .meta { color:var(--muted); font-size:12px; margin-top:4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Security Precheck</h1>
+    <p class="sub">Pre-launch scan for web apps — Nmap, OWASP ZAP, testssl.sh</p>
+  </header>
+  <main>
+    <form id="scan-form">
+      <input id="url" type="url" placeholder="https://example.com" required />
+      <button type="submit" id="submit-btn">Start scan</button>
+    </form>
+    <div id="status" class="status"></div>
+    <div id="counts" class="counts"></div>
+    <div id="results"></div>
+    <div id="history-section" style="margin-top:32px;">
+      <h2 style="font-size:16px; margin:0 0 12px; color:var(--muted);">Recent scans</h2>
+      <div id="history"></div>
+    </div>
+  </main>
+  <script>
+    const form = document.getElementById("scan-form");
+    const statusEl = document.getElementById("status");
+    const countsEl = document.getElementById("counts");
+    const resultsEl = document.getElementById("results");
+    const historyEl = document.getElementById("history");
+    const submitBtn = document.getElementById("submit-btn");
+    let poll;
+    let currentJob = null;
+
+    async function loadHistory() {
+      const res = await fetch("/api/scans");
+      if (!res.ok) return;
+      const jobs = await res.json();
+      if (!jobs.length) {
+        historyEl.innerHTML = '<p style="color:var(--muted); font-size:13px;">No scans yet.</p>';
+        return;
+      }
+      historyEl.innerHTML = jobs.slice(0, 10).map(j => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:var(--card); border-radius:8px; margin-bottom:6px; cursor:pointer;" onclick="viewScan('${j.id}')">
+          <div>
+            <strong>${escapeHtml(j.target_url)}</strong>
+            <span class="sev ${j.status}" style="margin-left:8px;">${j.status}</span>
+          </div>
+          <div style="color:var(--muted); font-size:12px;">
+            ${j.findings.length} findings · ${new Date(j.created_at).toLocaleString()}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    window.viewScan = async function(id) {
+      const res = await fetch("/api/scans/" + id);
+      if (!res.ok) return;
+      const job = await res.json();
+      currentJob = job;
+      statusEl.textContent = `Scan ${job.id} — ${job.status}` + (job.error ? ` (${job.error})` : "");
+      render(job);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    loadHistory();
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const target_url = document.getElementById("url").value.trim();
+      if (!target_url) return;
+      statusEl.textContent = "";
+      statusEl.classList.remove("error");
+      countsEl.innerHTML = "";
+      resultsEl.innerHTML = "";
+      submitBtn.disabled = true;
+      const res = await fetch("/api/scans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_url })
+      });
+      if (!res.ok) {
+        statusEl.textContent = "Failed to start scan";
+        statusEl.classList.add("error");
+        submitBtn.disabled = false;
+        return;
+      }
+      const job = await res.json();
+      currentJob = job;
+      statusEl.innerHTML = `<span class="spinner"></span>Scanning ${escapeHtml(target_url)}...`;
+      pollJob(job.id);
+    });
+
+    async function pollJob(id) {
+      clearInterval(poll);
+      const tick = async () => {
+        try {
+          const res = await fetch("/api/scans/" + id);
+          if (!res.ok) return;
+          const job = await res.json();
+          currentJob = job;
+          if (job.status === "running") {
+            statusEl.innerHTML = `<span class="spinner"></span>Scanning — ${job.scanners_run.length} scanner(s) done`;
+          } else if (job.status === "completed") {
+            clearInterval(poll);
+            statusEl.textContent = `Scan completed — ${new Date(job.finished_at).toLocaleTimeString()}`;
+            submitBtn.disabled = false;
+            render(job);
+          } else if (job.status === "failed") {
+            clearInterval(poll);
+            statusEl.textContent = `Scan failed: ${job.error || "unknown error"}`;
+            statusEl.classList.add("error");
+            submitBtn.disabled = false;
+          } else if (job.status === "queued") {
+            statusEl.textContent = "Queued...";
+          }
+        } catch (err) {
+          console.error("poll error", err);
+        }
+      };
+      await tick();
+      poll = setInterval(tick, 2500);
+    }
+
+    function render(job) {
+      const counts = {critical:0,high:0,medium:0,low:0,info:0};
+      const byScanner = {};
+      job.findings.forEach(f => {
+        counts[f.severity] = (counts[f.severity] || 0) + 1;
+        if (!byScanner[f.scanner]) byScanner[f.scanner] = [];
+        byScanner[f.scanner].push(f);
+      });
+      countsEl.innerHTML = Object.entries(counts).map(([k,v]) => `<span class="chip ${k}">${k}: ${v}</span>`).join("");
+      const exportBtn = document.createElement("button");
+      exportBtn.textContent = "Export JSON";
+      exportBtn.style.marginLeft = "8px";
+      exportBtn.style.padding = "6px 12px";
+      exportBtn.style.fontSize = "12px";
+      exportBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = `/api/scans/${job.id}/export`;
+        a.download = `scan-${job.id}.json`;
+        a.click();
+      });
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "View Report";
+      reportBtn.style.marginLeft = "8px";
+      reportBtn.style.padding = "6px 12px";
+      reportBtn.style.fontSize = "12px";
+      reportBtn.addEventListener("click", () => {
+        window.open(`/api/scans/${job.id}/report`, "_blank");
+      });
+      countsEl.appendChild(exportBtn);
+      countsEl.appendChild(reportBtn);
+      resultsEl.innerHTML = "";
+      for (const [scanner, findings] of Object.entries(byScanner)) {
+        const section = document.createElement("div");
+        section.className = "scanner-section";
+        const header = document.createElement("div");
+        header.className = "scanner-header";
+        header.innerHTML = `<span>${escapeHtml(scanner)} (${findings.length})</span><span>▼</span>`;
+        header.addEventListener("click", () => {
+          body.classList.toggle("open");
+          header.querySelector("span:last-child").textContent = body.classList.contains("open") ? "▲" : "▼";
+        });
+        const body = document.createElement("div");
+        body.className = "scanner-body open";
+        const table = document.createElement("table");
+        table.innerHTML = `<thead><tr><th>Severity</th><th>Finding</th><th>Location</th><th>Fix</th></tr></thead>`;
+        const tbody = document.createElement("tbody");
+        findings.forEach(f => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="sev ${f.severity}">${f.severity}</td>
+            <td><strong>${escapeHtml(f.title)}</strong><br><span class="meta">${escapeHtml(f.description).slice(0,220)}</span></td>
+            <td>${escapeHtml(f.location)}</td>
+            <td>${escapeHtml(f.recommendation)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        body.appendChild(table);
+        section.appendChild(header);
+        section.appendChild(body);
+        resultsEl.appendChild(section);
+      }
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+  </script>
+</body>
+</html>

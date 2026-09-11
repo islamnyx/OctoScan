@@ -1,0 +1,59 @@
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, HttpUrl
+
+
+class Severity(str, Enum):
+    critical = "critical"
+    high = "high"
+    medium = "medium"
+    low = "low"
+    info = "info"
+
+
+class ScanStatus(str, Enum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class Finding(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    scanner: str
+    title: str
+    severity: Severity
+    description: str
+    evidence: str = ""
+    recommendation: str = ""
+    location: str = ""
+    cve: str | None = None
+    cvss: float | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScanRequest(BaseModel):
+    target_url: HttpUrl
+    include_source: bool = False
+    repo_url: str | None = None
+
+
+class ScanJob(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex[:16])
+    target_url: str
+    status: ScanStatus = ScanStatus.queued
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    scanners_run: list[str] = Field(default_factory=list)
+    findings: list[Finding] = Field(default_factory=list)
+
+    def counts(self) -> dict[str, int]:
+        counts = {s.value: 0 for s in Severity}
+        for finding in self.findings:
+            counts[finding.severity.value] += 1
+        return counts
