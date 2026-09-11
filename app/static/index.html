@@ -38,11 +38,12 @@
 <body>
   <header>
     <h1>Security Precheck</h1>
-    <p class="sub">Pre-launch scan for web apps — Nmap, OWASP ZAP, testssl.sh</p>
+    <p class="sub">Pre-launch scan for web apps — Nmap, OWASP ZAP, testssl.sh, security headers</p>
   </header>
   <main>
     <form id="scan-form">
       <input id="url" type="url" placeholder="https://example.com" required />
+      <input id="api-key" type="password" placeholder="API key (if required)" autocomplete="off" style="max-width:200px;" />
       <button type="submit" id="submit-btn">Start scan</button>
     </form>
     <div id="status" class="status"></div>
@@ -60,6 +61,17 @@
     const resultsEl = document.getElementById("results");
     const historyEl = document.getElementById("history");
     const submitBtn = document.getElementById("submit-btn");
+    const apiKeyInput = document.getElementById("api-key");
+    apiKeyInput.value = localStorage.getItem("apiKey") || "";
+    apiKeyInput.addEventListener("change", () => {
+      localStorage.setItem("apiKey", apiKeyInput.value.trim());
+    });
+    function apiHeaders(extra) {
+      const h = Object.assign({ "Content-Type": "application/json" }, extra || {});
+      const k = (apiKeyInput.value || "").trim();
+      if (k) h["X-API-Key"] = k;
+      return h;
+    }
     let poll;
     let currentJob = null;
 
@@ -107,9 +119,15 @@
       submitBtn.disabled = true;
       const res = await fetch("/api/scans", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders(),
         body: JSON.stringify({ target_url })
       });
+      if (res.status === 403) {
+        statusEl.textContent = "Invalid API key — check the API key field";
+        statusEl.classList.add("error");
+        submitBtn.disabled = false;
+        return;
+      }
       if (!res.ok) {
         statusEl.textContent = "Failed to start scan";
         statusEl.classList.add("error");
