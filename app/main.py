@@ -92,8 +92,16 @@ def report_scan(scan_id: str):
         lines.append(f"[{f.severity.value.upper()}] {f.title}")
         lines.append(f"  Scanner: {f.scanner}")
         lines.append(f"  Location: {f.location}")
+        merged_count = (f.raw or {}).get("merged_count")
+        if merged_count and merged_count > 1:
+            sources = ", ".join((f.raw or {}).get("merged_sources") or [])
+            lines.append(f"  Merged: {merged_count}x ({sources})")
+            for u in (f.raw or {}).get("affected_urls") or []:
+                lines.append(f"    - {u}")
         if f.description:
             lines.append(f"  Description: {f.description}")
+        if f.evidence:
+            lines.append(f"  Evidence: {f.evidence}")
         if f.recommendation:
             lines.append(f"  Recommendation: {f.recommendation}")
         if f.cve:

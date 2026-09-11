@@ -56,7 +56,11 @@ class ZapScanner(BaseScanner):
             )
             spider = client.get(
                 f"{base}/JSON/spider/action/scan/",
-                params={"apikey": api_key, "url": target, "maxChildren": "5"},
+                # Classic spider only; JS-heavy SPAs (Juice Shop) need the
+                # AJAX spider for real coverage — known gap: active-scan
+                # vulns (SQLi/XSS) stay invisible until that's wired in.
+                # maxChildren=10 (was 5) widens breadth cheaply in the meantime.
+                params={"apikey": api_key, "url": target, "maxChildren": "10"},
             )
             spider.raise_for_status()
             self._wait_percent(client, f"{base}/JSON/spider/view/status/", api_key)

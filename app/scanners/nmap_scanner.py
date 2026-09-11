@@ -47,6 +47,12 @@ class NmapScanner(BaseScanner):
             service = service_el.get("name", "unknown") if service_el is not None else "unknown"
             product = service_el.get("product", "") if service_el is not None else ""
             version = service_el.get("version", "") if service_el is not None else ""
+            method = service_el.get("method", "") if service_el is not None else ""
+            try:
+                conf = int(service_el.get("conf", "0") or 0) if service_el is not None else 0
+            except ValueError:
+                conf = 0
+            servicefp = service_el.get("servicefp", "") if service_el is not None else ""
             proto = port.get("protocol", "tcp")
             portid = port.get("portid", "")
             # Scanning localhost also sees our own API + ZAP daemon.
@@ -54,19 +60,46 @@ class NmapScanner(BaseScanner):
             if self._is_self_port(portid):
                 skipped_self.append(f"{portid}/{proto}")
                 continue
+            # Nmap labels unknown ports from its port table (method=table,
+            # low conf) — e.g. 3000 as "ppp" — even when its own probe
+            # captured an HTTP banner (servicefp contains the Juice Shop
+            # HTTP/1.1 200 response). Never present a table guess as fact:
+            # if the banner is HTTP or the port is the scanned web target,
+            # correct the service and record the guess in raw.
+            service_guess = ""
+            service_corrected = False
+            if method == "table" or (service == "unknown" and conf < 5):
+                if "HTTP/1." in servicefp or (
+                    portid == str(self.port) and self.scheme in ("http", "https")
+                ):
+                    service_guess = service
+                    service = self.scheme
+                    service_corrected = True
             location = f"{self.host}:{portid}/{proto}"
             detail = " ".join(part for part in [service, product, version] if part)
             severity = nmap_port_severity(state, service)
+            description = f"Service exposed: {detail or service}."
+            if service_corrected:
+                description += f" Nmap guessed '{service_guess}' from its port table (conf {conf}); probe banner shows HTTP, corrected."
             findings.append(
                 Finding(
                     scanner=self.name,
                     title=f"Open port {portid}/{proto} ({service})",
                     severity=severity,
-                    description=f"Service exposed: {detail or service}.",
+                    description=description,
                     evidence=location,
                     location=location,
                     recommendation=self._recommendation(service, portid),
-                    raw={"port": portid, "protocol": proto, "service": service, "product": product},
+                    raw={
+                        "port": portid,
+                        "protocol": proto,
+                        "service": service,
+                        "product": product,
+                        "method": method,
+                        "conf": conf,
+                        "service_guess": service_guess or None,
+                        "service_corrected": service_corrected,
+                    },
                 )
             )
         if not findings:

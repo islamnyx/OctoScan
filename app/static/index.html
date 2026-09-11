@@ -33,6 +33,13 @@
     .scanner-body { display:none; }
     .scanner-body.open { display:block; }
     .meta { color:var(--muted); font-size:12px; margin-top:4px; }
+    .filters { display:flex; gap:8px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+    .fbtn { padding:6px 12px; border-radius:999px; border:1px solid #2c3c55; background:#121a24; color:var(--muted); font-size:12px; cursor:pointer; }
+    .fbtn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .search { max-width:260px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#2c3c55; color:var(--text); font-size:11px; margin-left:8px; vertical-align:middle; }
+    .urls { margin:6px 0 0; padding-left:16px; color:var(--muted); font-size:12px; }
+    .ev { color:var(--muted); font-size:12px; margin-top:4px; word-break:break-all; }
   </style>
 </head>
 <body>
@@ -48,6 +55,15 @@
     </form>
     <div id="status" class="status"></div>
     <div id="counts" class="counts"></div>
+    <div class="filters" id="filters" style="display:none;">
+      <button class="fbtn active" data-sev="all">All</button>
+      <button class="fbtn" data-sev="critical">Critical</button>
+      <button class="fbtn" data-sev="high">High</button>
+      <button class="fbtn" data-sev="medium">Medium</button>
+      <button class="fbtn" data-sev="low">Low</button>
+      <button class="fbtn" data-sev="info">Info</button>
+      <input id="q" class="search" type="search" placeholder="Filter by text…" />
+    </div>
     <div id="results"></div>
     <div id="history-section" style="margin-top:32px;">
       <h2 style="font-size:16px; margin:0 0 12px; color:var(--muted);">Recent scans</h2>
@@ -74,6 +90,22 @@
     }
     let poll;
     let currentJob = null;
+    let activeSev = "all";
+    let query = "";
+    const filtersEl = document.getElementById("filters");
+    const qInput = document.getElementById("q");
+    filtersEl.querySelectorAll(".fbtn").forEach(b => {
+      b.addEventListener("click", () => {
+        filtersEl.querySelectorAll(".fbtn").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        activeSev = b.dataset.sev;
+        if (currentJob) render(currentJob);
+      });
+    });
+    qInput.addEventListener("input", () => {
+      query = qInput.value.trim().toLowerCase();
+      if (currentJob) render(currentJob);
+    });
 
     async function loadHistory() {
       const res = await fetch("/api/scans");
@@ -172,10 +204,19 @@
     }
 
     function render(job) {
+      filtersEl.style.display = "flex";
       const counts = {critical:0,high:0,medium:0,low:0,info:0};
       const byScanner = {};
+      const q = query;
+      const visible = job.findings.filter(f => {
+        if (activeSev !== "all" && f.severity !== activeSev) return false;
+        if (q && !((f.title || "") + " " + (f.description || "") + " " + (f.location || "")).toLowerCase().includes(q)) return false;
+        return true;
+      });
       job.findings.forEach(f => {
         counts[f.severity] = (counts[f.severity] || 0) + 1;
+      });
+      visible.forEach(f => {
         if (!byScanner[f.scanner]) byScanner[f.scanner] = [];
         byScanner[f.scanner].push(f);
       });
@@ -219,10 +260,19 @@
         const tbody = document.createElement("tbody");
         findings.forEach(f => {
           const tr = document.createElement("tr");
+          const raw = f.raw || {};
+          const merged = raw.merged_count > 1
+            ? `<span class="badge" title="${escapeHtml((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged · ${escapeHtml((raw.merged_sources || []).join("+"))}</span>`
+            : "";
+          const urls = (raw.affected_urls || []).length > 1
+            ? `<details><summary style="cursor:pointer;">${raw.affected_urls.length} URLs</summary><ul class="urls">${raw.affected_urls.map(u => `<li>${escapeHtml(u)}</li>`).join("")}</ul></details>`
+            : "";
+          const ev = f.evidence ? `<div class="ev">Evidence: ${escapeHtml(f.evidence).slice(0, 300)}</div>` : "";
+          const cve = f.cve ? `<div class="ev">${escapeHtml(f.cve)}</div>` : "";
           tr.innerHTML = `
             <td class="sev ${f.severity}">${f.severity}</td>
-            <td><strong>${escapeHtml(f.title)}</strong><br><span class="meta">${escapeHtml(f.description).slice(0,220)}</span></td>
-            <td>${escapeHtml(f.location)}</td>
+            <td><strong>${escapeHtml(f.title)}</strong>${merged}<br><span class="meta">${escapeHtml(f.description).slice(0,280)}</span>${ev}${cve}</td>
+            <td>${escapeHtml(f.location)}${urls}</td>
             <td>${escapeHtml(f.recommendation)}</td>
           `;
           tbody.appendChild(tr);

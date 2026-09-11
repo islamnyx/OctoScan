@@ -89,6 +89,20 @@ def _concept(f: Finding) -> str | None:
         return "referrer-policy-missing"
     if header == "permissions-policy" or (nikto_id == "013587" and "permissions-policy" in text):
         return "permissions-policy-missing"
+    # Generic fallback: the same ZAP rule (plugin+param) firing on N URLs
+    # is one root cause, not N findings (e.g. Timestamp Disclosure on every
+    # crawled page). Group by rule so each reports once with affected_urls.
+    # Param is included so distinct injection points stay distinct.
+    if f.scanner == "zap" and plugin:
+        param = str(raw.get("param") or "")
+        return f"zap-{plugin}-{param}"
+    # Nikto speculative guesses ("This might be interesting" for
+    # /userdata.json, /login.json, ...) are one noise class, not N rows.
+    # The scanner already collapses catch-all-confirmed ones live; this is
+    # the safety net for old scans and fail-open network checks. Titles are
+    # prefixed ("Nikto 007203: This might be interesting."), so endswith.
+    if f.scanner == "nikto" and title.strip().rstrip(".").endswith("this might be interesting"):
+        return "nikto-speculative-paths"
     return None
 
 
@@ -107,6 +121,44 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
         if len(items) == 1:
             merged.append(items[0])
             continue
+        if concept == "nikto-speculative-paths":
+            # Rewrite: winner title would otherwise be a single random
+            # path ("Nikto 007203: This might be interesting.") hiding the
+            # N-to-1 collapse. State the collapse explicitly.
+            winner = sorted(items, key=lambda f: (SEVERITY_RANK[f.severity], len(f.description or "")), reverse=True)[0]
+            urls = sorted({f.location for f in items if f.location})
+            paths = sorted({str((f.raw or {}).get("url") or f.location) for f in items})
+            ids = sorted({str((f.raw or {}).get("nikto_id") or "") for f in items if (f.raw or {}).get("nikto_id")})
+            n = len(items)
+            data = dict(winner.raw or {})
+            data["merged_from"] = [f.model_dump(mode="json") for f in items if f.id != winner.id]
+            data["merged_concept"] = concept
+            data["merged_count"] = n
+            data["merged_sources"] = sorted({f.scanner for f in items})
+            data["affected_urls"] = urls
+            data["nikto_ids"] = ids
+            data["urls"] = paths
+            merged.append(
+                winner.model_copy(
+                    update={
+                        "title": f"Nikto: {n} speculative paths returned non-404 responses (likely SPA catch-all)",
+                        "severity": Severity.info,
+                        "description": (
+                            f"{n} guessed paths returned non-404 responses ('This might be "
+                            "interesting'). On SPA servers these are typically the app shell "
+                            "served for unknown paths, not real files. Review list: "
+                            + ", ".join(paths)
+                        ),
+                        "evidence": "GET " + ", ".join(paths),
+                        "recommendation": (
+                            "Likely SPA catch-all noise — spot-check one path by diffing "
+                            "against / before acting. No action needed if bodies match."
+                        ),
+                        "raw": data,
+                    }
+                )
+            )
+            continue
         # Winner: highest severity, then longest description (usually ZAP/headers).
         winner = sorted(items, key=lambda f: (SEVERITY_RANK[f.severity], len(f.description or "")), reverse=True)[0]
         sources = sorted({f.scanner for f in items})
@@ -115,6 +167,7 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
         data["merged_from"] = [f.model_dump(mode="json") for f in items if f.id != winner.id]
         data["merged_concept"] = concept
         data["merged_count"] = len(items)
+        data["merged_sources"] = sources
         data["affected_urls"] = urls
         extra = f" Also reported by {', '.join(sources)} ({len(items)}x, {len(urls)} URL(s))."
         if extra not in (winner.description or ""):
