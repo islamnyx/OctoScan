@@ -1,6 +1,7 @@
+import hashlib
 import json
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -8,6 +9,34 @@ from app.config import settings
 from app.models import Finding, Severity
 from app.normalize import from_zap_risk
 from app.scanners.base import BaseScanner
+
+# Noise filter: ZAP spider often flags bundled static assets.
+# Keep narrow to avoid hiding real findings.
+NOISY_PATH_SUBSTRINGS = ("assets/public/assets/public",)
+STATIC_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map", ".js", ".css")
+
+
+def _normalize_url(url: str) -> str:
+    try:
+        p = urlparse(url)
+        path = p.path or "/"
+        # collapse trailing slash except root
+        if len(path) > 1 and path.endswith("/"):
+            path = path.rstrip("/")
+        # strip fragment, keep query (different query = different location)
+        return urlunparse((p.scheme.lower(), p.netloc.lower(), path, "", p.query, ""))
+    except Exception:
+        return url
+
+
+def _dedup_key(alert: dict, norm_url: str) -> tuple[str, str, str, str]:
+    plugin_id = str(alert.get("pluginId") or alert.get("pluginid") or "")
+    title = alert.get("alert") or alert.get("name") or "ZAP alert"
+    param = str(alert.get("param") or "")
+    cwe = str(alert.get("cweid") or "")
+    # Prefer stable plugin-based key, fallback to title
+    primary = plugin_id if plugin_id else hashlib.sha1(title.encode()).hexdigest()[:8]
+    return (primary, norm_url, param, cwe)
 
 
 class ZapScanner(BaseScanner):
@@ -61,17 +90,23 @@ class ZapScanner(BaseScanner):
 
     def _parse(self, alerts: list[dict]) -> list[Finding]:
         findings: list[Finding] = []
-        seen: set[tuple[str, str]] = set()
+        seen: set[tuple[str, str, str, str]] = set()
         for alert in alerts:
             title = alert.get("alert") or alert.get("name") or "ZAP alert"
             location = alert.get("url") or self.target_url
-            if "assets/public/assets/public" in location:
+            norm_url = _normalize_url(location)
+            if any(s in norm_url for s in NOISY_PATH_SUBSTRINGS):
                 continue
-            key = (title, location)
+            # Drop low-value static-asset noise (e.g. User Agent Fuzzer on /assets/*.js)
+            # but keep anything with meaningful risk.
+            risk_raw = alert.get("risk") or alert.get("riskcode") or "0"
+            if norm_url.lower().endswith(STATIC_EXTENSIONS) and str(risk_raw).lower() in ("0", "1", "low", "informational", "info"):
+                continue
+            key = _dedup_key(alert, norm_url)
             if key in seen:
                 continue
             seen.add(key)
-            risk = alert.get("risk") or alert.get("riskcode")
+            risk = risk_raw
             findings.append(
                 Finding(
                     scanner=self.name,
@@ -79,10 +114,16 @@ class ZapScanner(BaseScanner):
                     severity=from_zap_risk(risk),
                     description=alert.get("description") or alert.get("other") or title,
                     evidence=alert.get("evidence") or alert.get("param") or "",
-                    location=location,
+                    location=norm_url,
                     recommendation=alert.get("solution") or "Review and remediate this ZAP finding.",
                     cve=(alert.get("cweid") and f"CWE-{alert.get('cweid')}") or None,
-                    raw={"pluginid": alert.get("pluginid"), "risk": risk},
+                    raw={
+                        "pluginid": alert.get("pluginId") or alert.get("pluginid"),
+                        "cweid": alert.get("cweid"),
+                        "param": alert.get("param"),
+                        "risk": risk,
+                        "dedup_key": "|".join(key),
+                    },
                 )
             )
         if not findings:
