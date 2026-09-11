@@ -55,10 +55,17 @@ class NiktoScanner(BaseScanner):
 
     def run(self) -> list[Finding]:
         out_base = self.workdir / "nikto"
+        # Nikto silently writes empty output when the host resolves to
+        # IPv6 first (e.g. `localhost` -> ::1) while the app listens on
+        # IPv4. Pin loopback to 127.0.0.1 for the probe only; findings
+        # still reference the user-supplied target URL.
+        probe_target = self.target_url
+        if self.host in ("localhost",):
+            probe_target = self.target_url.replace("localhost", "127.0.0.1", 1)
         cmd = [
             settings.nikto_bin,
             "-h",
-            self.target_url,
+            probe_target,
             "-Format",
             "json",
             "-o",
@@ -80,10 +87,9 @@ class NiktoScanner(BaseScanner):
             timeout=settings.scan_timeout_seconds,
         )
         out_path = self._find_output(out_base)
-        if out_path is None:
-            raise RuntimeError(
-                (proc.stderr.strip() or proc.stdout.strip() or "nikto produced no JSON output")[-300:]
-            )
+        if out_path is None or out_path.stat().st_size == 0:
+            detail = proc.stderr.strip() or proc.stdout.strip() or "no output written"
+            raise RuntimeError(f"nikto produced no output for {self.target_url}: {detail[-200:]}")
         return self._parse(out_path)
 
     @staticmethod
