@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_port: int = 8000
     data_dir: Path = ROOT / "data"
     nmap_bin: str = "nmap"
+    nikto_bin: str = "nikto"
     zap_bin: str = "/usr/share/zaproxy/zap.sh"
     testssl_bin: Path = ROOT / "resources" / "testssl.sh" / "testssl.sh"
     zap_port: int = 8090

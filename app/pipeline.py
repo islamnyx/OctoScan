@@ -25,7 +25,7 @@ def run_scan(scan_id: str) -> ScanJob:
         scanner = scanner_cls(job.target_url, workdir)
         return scanner.name, scanner.run()
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {pool.submit(_run, cls): cls.name for cls in SCANNERS}
         for future in as_completed(futures):
             name = futures[future]

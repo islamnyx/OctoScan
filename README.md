@@ -4,7 +4,7 @@ Pre-launch security check for Algerian startups. Orchestrates Nmap, OWASP ZAP, a
 
 ## What it does
 
-- Scans a target URL with **Nmap** (ports/services), **OWASP ZAP** (web vulnerabilities), and **testssl.sh** (TLS/SSL config)
+- Scans a target URL with **Nmap** (ports/services), **OWASP ZAP** (web vulnerabilities), **testssl.sh** (TLS/SSL config), **headers** (security headers + cookie flags) and **Nikto** (known-path/CGI misconfigurations)
 - Normalizes all findings into one consistent format
 - Prioritizes by severity and shows results in a web dashboard
 - Exports results as JSON or plain-text report
@@ -14,6 +14,7 @@ Pre-launch security check for Algerian startups. Orchestrates Nmap, OWASP ZAP, a
 | Tool | Install | Notes |
 |------|---------|-------|
 | Nmap | `sudo apt install nmap` | Path: `/usr/bin/nmap` |
+| Nikto | `sudo apt install nikto` | Path: `/usr/bin/nikto`, bounded with `-maxtime 240s -Tuning x6` |
 | OWASP ZAP | Download from [zaproxy.org](https://www.zaproxy.org/download/) | Extract to `resources/zaproxy/`, run with `-daemon` |
 | testssl.sh | `git clone https://github.com/drwetter/testssl.sh.git resources/testssl.sh` | Run `resources/testssl.sh/testssl.sh` or set `TESTSSL_BIN` |
 | Gitleaks | `sudo apt install gitleaks` or build from source | Reserved for Phase 2 source scans |
@@ -76,6 +77,8 @@ app/
 │   ├── nmap_scanner.py
 │   ├── zap_scanner.py
 │   ├── testssl_scanner.py
+│   ├── headers_scanner.py
+│   └── nikto_scanner.py
 │   └── stubs.py      # Gitleaks + Dependency-Check placeholders
 └── static/
     └── index.html    # Dashboard
