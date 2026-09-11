@@ -36,13 +36,39 @@ MEDIUM_KEYWORDS = (
 )
 
 
+def _smart_truncate(msg: str, limit: int = 100) -> str:
+    text = " ".join(msg.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return cut.rstrip(" ,;:.") + "…"
+
+
+def _recommendation(msg: str, references: str | None) -> str:
+    ref = (references or "").strip()
+    generic = "Review this Nikto finding and harden the exposed path/config."
+    if not ref:
+        return generic
+    # Nikto often puts a bare CVE id or a docs URL in `references`.
+    # Neither is an actionable recommendation on its own.
+    if ref.startswith("http"):
+        return f"{generic} See: {ref}"
+    if ref.upper().startswith("CVE-"):
+        cve = ref.split()[0]
+        return f"{generic} See https://nvd.nist.gov/vuln/detail/{cve}"
+    return f"{generic} Ref: {ref}"
+
+
 def _severity(vuln_id: str, msg: str) -> Severity:
     vid = str(vuln_id)
     if vid in HEADER_DUP_IDS:
         return Severity.info
     if vid in INFO_IDS:
         return Severity.info
-    low_msg = msg.lower()
+    low_msg = msg.lower().strip().rstrip(".")
+    # Nikto heuristic with no detail — keep as info, not low.
+    if low_msg == "this might be interesting":
+        return Severity.info
     if any(k in low_msg for k in HIGH_KEYWORDS):
         return Severity.high
     if any(k in low_msg for k in MEDIUM_KEYWORDS):
@@ -130,15 +156,16 @@ class NiktoScanner(BaseScanner):
                     continue
                 seen.add(key)
                 location = self.target_url.rstrip("/") + rel_url
+                short = _smart_truncate(msg, 100)
                 findings.append(
                     Finding(
                         scanner=self.name,
-                        title=f"Nikto {vid}: {msg[:100]}" if vid else msg[:120],
+                        title=f"Nikto {vid}: {short}" if vid else short,
                         severity=_severity(vid, msg),
                         description=msg,
                         evidence=f"{method} {rel_url}".strip(),
                         location=location,
-                        recommendation=item.get("references") or "Review this Nikto finding and harden the exposed path/config.",
+                        recommendation=_recommendation(msg, item.get("references")),
                         raw={"nikto_id": vid, "method": method, "url": rel_url},
                     )
                 )

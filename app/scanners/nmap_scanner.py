@@ -37,6 +37,7 @@ class NmapScanner(BaseScanner):
 
     def _parse(self, xml_path: Path) -> list[Finding]:
         findings: list[Finding] = []
+        skipped_self: list[str] = []
         root = ET.parse(xml_path).getroot()
         for port in root.findall(".//port"):
             state = (port.find("state").get("state") if port.find("state") is not None else "")
@@ -48,6 +49,11 @@ class NmapScanner(BaseScanner):
             version = service_el.get("version", "") if service_el is not None else ""
             proto = port.get("protocol", "tcp")
             portid = port.get("portid", "")
+            # Scanning localhost also sees our own API + ZAP daemon.
+            # Those are scan infrastructure, not target attack surface.
+            if self._is_self_port(portid):
+                skipped_self.append(f"{portid}/{proto}")
+                continue
             location = f"{self.host}:{portid}/{proto}"
             detail = " ".join(part for part in [service, product, version] if part)
             severity = nmap_port_severity(state, service)
@@ -64,16 +70,33 @@ class NmapScanner(BaseScanner):
                 )
             )
         if not findings:
-            findings.append(
-                Finding(
-                    scanner=self.name,
-                    title="No open ports in top 200",
-                    severity=Severity.info,
-                    description="Nmap did not report open ports in the top 200 TCP ports.",
-                    location=self.host,
+            if skipped_self:
+                findings.append(
+                    Finding(
+                        scanner=self.name,
+                        title=f"Only self ports open ({', '.join(skipped_self)}) — skipped",
+                        severity=Severity.info,
+                        description="Nmap only found the scanner's own API/ZAP ports on loopback; they were excluded as scan infrastructure.",
+                        location=self.host,
+                        raw={"skipped_self_ports": skipped_self},
+                    )
                 )
-            )
+            else:
+                findings.append(
+                    Finding(
+                        scanner=self.name,
+                        title="No open ports in top 200",
+                        severity=Severity.info,
+                        description="Nmap did not report open ports in the top 200 TCP ports.",
+                        location=self.host,
+                    )
+                )
         return findings
+
+    def _is_self_port(self, portid: str) -> bool:
+        if self.host not in ("localhost", "127.0.0.1", "::1"):
+            return False
+        return portid in {str(settings.app_port), str(settings.zap_port)}
 
     @staticmethod
     def _recommendation(service: str, port: str) -> str:
