@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import subprocess
 
@@ -105,6 +106,15 @@ class NiktoScanner(BaseScanner):
         probe_target = self.target_url
         if self.host in ("localhost",):
             probe_target = self.target_url.replace("localhost", "127.0.0.1", 1)
+        # -nolookup aborts with "given name" error on hostnames (verified
+        # 2026-09-12 on www.enscs.edu.dz). Only use it for literal IPs.
+        try:
+            ipaddress.ip_address(self.host)
+            use_nolookup = True
+        except ValueError:
+            use_nolookup = self.host in ("localhost",)
+            if "127.0.0.1" in probe_target:
+                use_nolookup = True
         cmd = [
             settings.nikto_bin,
             "-h",
@@ -115,7 +125,10 @@ class NiktoScanner(BaseScanner):
             str(out_base),
             "-ask",
             "no",
-            "-nolookup",
+        ]
+        if use_nolookup:
+            cmd.append("-nolookup")
+        cmd += [
             "-maxtime",
             "240s",
             "-timeout",

@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 class Severity(str, Enum):
@@ -39,6 +39,18 @@ class ScanRequest(BaseModel):
     target_url: HttpUrl
     include_source: bool = False
     repo_url: str | None = None
+
+    @field_validator("repo_url")
+    @classmethod
+    def _clean_repo(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()[:512]
+        if not v:
+            return None
+        # Phase-2 source scans are not enabled (stubs.py); reject repo input
+        # fail-closed rather than storing an unaudited URL.
+        raise ValueError("repo_url not supported in black-box mode")
 
 
 class ScanJob(BaseModel):

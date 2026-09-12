@@ -264,8 +264,9 @@
           const merged = raw.merged_count > 1
             ? `<span class="badge" title="${escapeHtml((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged · ${escapeHtml((raw.merged_sources || []).join("+"))}</span>`
             : "";
-          const urls = (raw.affected_urls || []).length > 1
-            ? `<details><summary style="cursor:pointer;">${raw.affected_urls.length} URLs</summary><ul class="urls">${raw.affected_urls.map(u => `<li>${escapeHtml(u)}</li>`).join("")}</ul></details>`
+          const urlList = raw.affected_urls || [];
+          const urls = urlList.length > 1
+            ? `<details><summary style="cursor:pointer;">affects ${urlList.length} URLs — showing ${Math.min(5, urlList.length)}</summary><ul class="urls">${urlList.slice(0, 5).map(u => `<li>${escapeHtml(u)}</li>`).join("")}${urlList.length > 5 ? `<li>… and ${urlList.length - 5} more (full list in JSON export)</li>` : ""}</ul></details>`
             : "";
           const ev = f.evidence ? `<div class="ev">Evidence: ${escapeHtml(f.evidence).slice(0, 300)}</div>` : "";
           const cve = f.cve ? `<div class="ev">${escapeHtml(f.cve)}</div>` : "";

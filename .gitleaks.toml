@@ -1,0 +1,25 @@
+title = "Security Precheck gitleaks config"
+
+[extend]
+useDefault = true
+
+# API keys / tokens that must never land in git history
+[[rules]]
+id = "startup-api-key-env"
+description = "API_KEY / ZAP key assigned a real value in committed file"
+regex = '''(?i)(api[_-]?key|zap[_-]?api[_-]?key)\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}["']?'''
+keywords = ["api_key", "api-key", "apikey"]
+tags = ["api", "key"]
+
+[allowlist]
+description = "docs and placeholders"
+paths = [
+  '''\.venv/''',
+  '''resources/''',
+  '''data/scans/''',
+]
+regexes = [
+  '''(?i)example|placeholder|test|changeme|change-me|<your-''',
+  '''API_KEY=$''',
+  '''API_KEY=\s*$''',
+]

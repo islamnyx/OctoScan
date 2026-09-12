@@ -4,7 +4,8 @@ Pre-launch security check for Algerian startups. Orchestrates Nmap, OWASP ZAP, a
 
 ## What it does
 
-- Scans a target URL with **Nmap** (ports/services), **OWASP ZAP** (web vulnerabilities), **testssl.sh** (TLS/SSL config), **headers** (security headers + cookie flags) and **Nikto** (known-path/CGI misconfigurations)
+- Scans a target URL with **Nmap** (ports/services), **OWASP ZAP** (web vulnerabilities), **testssl.sh** (TLS/SSL config), **headers** (security headers + cookie flags), **Nikto** (known-path/CGI misconfigurations) and **Nuclei** (thousands of CVE/misconfiguration/exposure templates, always full-depth)
+- Re-examines every discovered URL for **exposed sensitive files** (`.kdbx`, `.env`, `.bak`, keys, DB dumps…) as their own high-severity findings
 - Normalizes all findings into one consistent format
 - Prioritizes by severity and shows results in a web dashboard
 - Exports results as JSON or plain-text report
@@ -15,6 +16,7 @@ Pre-launch security check for Algerian startups. Orchestrates Nmap, OWASP ZAP, a
 |------|---------|-------|
 | Nmap | `sudo apt install nmap` | Path: `/usr/bin/nmap` |
 | Nikto | `sudo apt install nikto` | Path: `/usr/bin/nikto`, bounded with `-maxtime 240s -Tuning x6` |
+| Nuclei | [projectdiscovery.io](https://github.com/projectdiscovery/nuclei#installation) + `nuclei -update-templates` | Path: `/usr/bin/nuclei`, full template set, JSONL output, severity gate via `NUCLEI_SEVERITY` (default `critical,high,medium,low`) |
 | OWASP ZAP | Download from [zaproxy.org](https://www.zaproxy.org/download/) | Extract to `resources/zaproxy/`, run with `-daemon` |
 | testssl.sh | `git clone https://github.com/drwetter/testssl.sh.git resources/testssl.sh` | Run `resources/testssl.sh/testssl.sh` or set `TESTSSL_BIN` |
 | Gitleaks | `sudo apt install gitleaks` or build from source | Reserved for Phase 2 source scans |
@@ -38,10 +40,11 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env and set API_KEY if you want auth enabled
 
-# 5. Start ZAP daemon
+# 5. Start ZAP daemon (authenticated — never disablekey=true)
+ZAP_API_KEY="$(openssl rand -hex 32)"; echo "ZAP_API_KEY=$ZAP_API_KEY" >> .env
 java -Xmx512m -jar /usr/share/zaproxy/zap-2.17.0.jar \
   -daemon -port 8090 -host 127.0.0.1 \
-  -config api.key=test -config api.disablekey=true
+  -config api.key=$ZAP_API_KEY -config api.disablekey=false
 
 # 6. Start the API
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
@@ -71,6 +74,7 @@ app/
 ├── models.py         # ScanJob, Finding, Severity
 ├── pipeline.py       # Parallel scanner execution
 ├── normalize.py      # Severity mapping + prioritization
+├── sensitive.py      # Sensitive-file exposure post-pass over discovered URLs
 ├── store.py          # JSON file persistence
 ├── scanners/
 │   ├── base.py       # Base scanner class
@@ -78,7 +82,8 @@ app/
 │   ├── zap_scanner.py
 │   ├── testssl_scanner.py
 │   ├── headers_scanner.py
-│   └── nikto_scanner.py
+│   ├── nikto_scanner.py
+│   └── nuclei_scanner.py   # CVE/misconfig templates (full run, JSONL)
 │   └── stubs.py      # Gitleaks + Dependency-Check placeholders
 └── static/
     └── index.html    # Dashboard

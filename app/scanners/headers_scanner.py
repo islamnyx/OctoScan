@@ -62,12 +62,30 @@ class HeadersScanner(BaseScanner):
             status = r.status_code
         except Exception as exc:
             raise RuntimeError(f"header check failed: {exc}")
+        # CORS probe (testing-cors-misconfiguration skill): a plain GET rarely
+        # shows ACAO; re-request with an evil Origin to expose wildcard /
+        # reflected-origin misconfigurations. Fail-open: never fails the scan.
+        cors_headers: dict = {}
+        try:
+            rc = httpx.get(
+                self.target_url,
+                headers={"Origin": "https://evil.example"},
+                follow_redirects=True,
+                timeout=15.0,
+            )
+            cors_headers = dict(rc.headers)
+        except Exception:
+            cors_headers = {}
         (self.workdir / "headers.json").write_text(
-            json.dumps({"url": self.target_url, "status": status, "headers": headers}, indent=2)
+            json.dumps(
+                {"url": self.target_url, "status": status, "headers": headers,
+                 "cors_probe": cors_headers},
+                indent=2,
+            )
         )
-        return self._parse(headers, status)
+        return self._parse(headers, status, cors_headers)
 
-    def _parse(self, headers: dict, status: int) -> list[Finding]:
+    def _parse(self, headers: dict, status: int, cors_headers: dict | None = None) -> list[Finding]:
         lowered = {k.lower(): v for k, v in headers.items()}
         findings: list[Finding] = []
 
@@ -115,6 +133,30 @@ class HeadersScanner(BaseScanner):
                         raw={"header": "set-cookie", "missing": missing},
                     )
                 )
+
+        # CORS misconfiguration (OWASP testing-cors-misconfiguration): wildcard
+        # or reflected evil origin + credentials = any site reads responses.
+        probed = {k.lower(): v for k, v in (cors_headers or {}).items()}
+        acao = (probed.get("access-control-allow-origin") or "").strip()
+        acac = (probed.get("access-control-allow-credentials") or "").strip().lower()
+        if acao == "*" or acao.lower() == "https://evil.example":
+            creds = acac == "true"
+            findings.append(
+                Finding(
+                    scanner=self.name,
+                    title="Permissive CORS policy (evil Origin accepted)",
+                    severity=Severity.high if creds else Severity.medium,
+                    description=(
+                        "Server returned Access-Control-Allow-Origin reflecting an "
+                        f"untrusted Origin ('{acao[:80]}')"
+                        + (" with Access-Control-Allow-Credentials: true — any site can read credentialed responses." if creds else ".")
+                    ),
+                    evidence=f"Origin: https://evil.example -> ACAO: {acao[:120]}",
+                    location=self.target_url,
+                    recommendation="Never reflect arbitrary Origins. Allow-list trusted origins server-side; avoid ACAO:* with credentials.",
+                    raw={"header": "access-control-allow-origin", "value": acao},
+                )
+            )
 
         # Server version disclosure (info only, never fails a build).
         server = lowered.get("server", "")
