@@ -7,7 +7,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import HttpUrl
 
 from app.config import ROOT, settings
-from app.models import ScanJob, ScanRequest, ScanStatus, Severity
+from app.models import (
+    AIConfigRequest,
+    AIConfigResponse,
+    RepoScanJob,
+    RepoScanRequest,
+    ScanJob,
+    ScanRequest,
+    ScanStatus,
+    Severity,
+)
 from app.pipeline import run_scan
 from app.security import (
     SecurityHeadersMiddleware,
@@ -150,3 +159,295 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
             lines.append(f"  CVE: {f.cve}")
         lines.append("")
     return PlainTextResponse("\n".join(lines))
+
+
+# ---- Phase 2: BYO AI + repo scans (additive, same auth/validation) ----
+
+
+@app.get("/api/ai/config", response_model=AIConfigResponse)
+def ai_config(api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    return AIConfigResponse(**ai_layer.masked(ai_layer.load_config()))
+
+
+@app.put("/api/ai/config", response_model=AIConfigResponse)
+def ai_save_config(req: AIConfigRequest, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    if req.base_url and not req.base_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "base_url must be http(s)")
+    cfg = ai_layer.save_config(req.provider, req.base_url, req.api_key, req.model)
+    return AIConfigResponse(**ai_layer.masked(cfg))
+
+
+@app.post("/api/ai/test")
+def ai_test(req: AIConfigRequest | None = None, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    cfg = ai_layer.load_config()
+    if req and (req.base_url or req.model):
+        cfg = {
+            "provider": req.provider or cfg.get("provider", ""),
+            "base_url": req.base_url or cfg.get("base_url", ""),
+            "api_key": req.api_key if req.api_key else cfg.get("api_key", ""),
+            "model": req.model or cfg.get("model", ""),
+        }
+    try:
+        return ai_layer.test_connection(cfg)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:500])
+
+
+@app.post("/api/repo-scans", response_model=RepoScanJob)
+def create_repo_scan(req: RepoScanRequest, request: Request, api_key: str = Depends(require_api_key)):
+    from app.repo import validate_branch, validate_repo_url
+    from app.repo_pipeline import run_repo_scan
+    from app.repo_store import save_repo_job
+
+    _limiter.check(request.client.host if request.client else "unknown")
+    repo_url = validate_repo_url(req.repo_url)
+    branch = validate_branch(req.branch)
+    job = RepoScanJob(repo_url=repo_url, branch=branch, ai_requested=req.include_ai)
+    save_repo_job(job)
+    Thread(target=run_repo_scan, args=(job.id,), kwargs={"run_ai": req.include_ai}, daemon=True).start()
+    return job
+
+
+@app.get("/api/repo-scans", response_model=list[RepoScanJob])
+def repo_scans(api_key: str = Depends(require_api_key)):
+    from app.repo_store import list_repo_jobs
+
+    return list_repo_jobs()
+
+
+@app.get("/api/repo-scans/{scan_id}", response_model=RepoScanJob)
+def get_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    return job
+
+
+@app.post("/api/repo-scans/{scan_id}/ai-analyze", response_model=RepoScanJob)
+def repo_ai_analyze(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+    from app import ai_review
+    from app.normalize import prioritize
+    from app.repo_store import load_repo_job, repo_workdir, save_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    if job.status not in (ScanStatus.completed, ScanStatus.failed):
+        raise HTTPException(409, "scan still running")
+    try:
+        # Regenerate: drop previous AI findings, model re-reads the code.
+        job.findings = [f for f in job.findings if f.scanner not in ("ai-code-review",)]
+        workdir = repo_workdir(job.id)
+        if workdir.exists():
+            review = ai_review.review_codebase(workdir, job.repo_url)
+            job.findings = prioritize(job.findings + review)
+            if "ai-code-review" not in job.scanners_run:
+                job.scanners_run.append("ai-code-review")
+        job.ai = ai_layer.analyze_findings(job.repo_url, job.findings)
+        if "ai" not in job.scanners_run:
+            job.scanners_run.append("ai")
+        save_repo_job(job)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:500])
+    return job
+
+
+@app.post("/api/scans/{scan_id}/ai-analyze", response_model=ScanJob)
+def scan_ai_analyze(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_job(scan_id)
+    if not job:
+        raise HTTPException(404, "scan not found")
+    if job.status not in (ScanStatus.completed, ScanStatus.failed):
+        raise HTTPException(409, "scan still running")
+    try:
+        analysis = ai_layer.analyze_findings(job.target_url, job.findings)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:500])
+    # Persist as a finding-free sidecar in raw of an info finding? Keep
+    # ScanJob schema stable: store summary inside error-adjacent field is
+    # wrong, so append an `ai` info finding carrying the summary.
+    from app.models import Finding
+
+    job.findings.append(
+        Finding(
+            scanner="ai",
+            title=f"AI triage ({analysis.model or analysis.provider or 'configured'})",
+            severity=Severity.info,
+            description=analysis.summary[:2000],
+            evidence="; ".join(analysis.prioritized_fixes)[:1000],
+            location=job.target_url,
+            recommendation="; ".join(analysis.prioritized_fixes)[:1000] or "See AI summary.",
+            raw={"provider": analysis.provider, "model": analysis.model,
+                  "false_positive_notes": analysis.false_positive_notes},
+        )
+    )
+    if "ai" not in job.scanners_run:
+        job.scanners_run.append("ai")
+    save_job(job)
+    return job
+
+
+# ---- Run controls: pause / resume / finish (long scans) ----
+
+
+def _running_count() -> int:
+    return sum(1 for j in list_jobs() if j.status in (ScanStatus.queued, ScanStatus.running))
+
+
+@app.post("/api/scans/{scan_id}/pause", response_model=ScanJob)
+def pause_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import control
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_job(scan_id)
+    if not job:
+        raise HTTPException(404, "scan not found")
+    if job.status != ScanStatus.running:
+        raise HTTPException(409, f"scan is {job.status}, nothing to pause")
+    control.request_pause(scan_id, "scan")
+    return job
+
+
+@app.post("/api/scans/{scan_id}/resume", response_model=ScanJob)
+def resume_scan(scan_id: str, request: Request, api_key: str = Depends(require_api_key)):
+    from app import control
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_job(scan_id)
+    if not job:
+        raise HTTPException(404, "scan not found")
+    if job.status != ScanStatus.paused:
+        raise HTTPException(409, f"scan is {job.status}, nothing to resume")
+    if _running_count() >= 3:
+        raise HTTPException(429, "too many concurrent scans (max 3), retry later")
+    control.clear_pause(scan_id, "scan")
+    Thread(target=run_scan, args=(job.id,), daemon=True).start()
+    return job
+
+
+@app.post("/api/scans/{scan_id}/finish", response_model=ScanJob)
+def finish_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import control
+    from app.pipeline import finalize_scan
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_job(scan_id)
+    if not job:
+        raise HTTPException(404, "scan not found")
+    if job.status not in (ScanStatus.running, ScanStatus.paused):
+        raise HTTPException(409, f"scan is {job.status}, nothing to finish")
+    if job.status == ScanStatus.paused:
+        prior = [job.error] if job.error else []
+        return finalize_scan(job, list(job.findings), prior, early=True)
+    control.request_finish(scan_id, "scan")
+    return job
+
+
+@app.post("/api/repo-scans/{scan_id}/pause", response_model=RepoScanJob)
+def pause_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import control
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    if job.status != ScanStatus.running:
+        raise HTTPException(409, f"scan is {job.status}, nothing to pause")
+    control.request_pause(scan_id, "repo")
+    return job
+
+
+@app.post("/api/repo-scans/{scan_id}/resume", response_model=RepoScanJob)
+def resume_repo_scan(scan_id: str, request: Request, api_key: str = Depends(require_api_key)):
+    from app import control
+    from app.repo_pipeline import run_repo_scan
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    if job.status != ScanStatus.paused:
+        raise HTTPException(409, f"scan is {job.status}, nothing to resume")
+    if _running_count() >= 3:
+        raise HTTPException(429, "too many concurrent scans (max 3), retry later")
+    control.clear_pause(scan_id, "repo")
+    Thread(target=run_repo_scan, args=(job.id,), kwargs={"run_ai": job.ai_requested}, daemon=True).start()
+    return job
+
+
+@app.post("/api/repo-scans/{scan_id}/finish", response_model=RepoScanJob)
+def finish_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import control
+    from app.repo_pipeline import finalize_repo_job
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    if job.status not in (ScanStatus.running, ScanStatus.paused):
+        raise HTTPException(409, f"scan is {job.status}, nothing to finish")
+    if job.status == ScanStatus.paused:
+        prior = [job.error] if job.error else []
+        return finalize_repo_job(job, list(job.findings), prior, early=True)
+    control.request_finish(scan_id, "repo")
+    return job
+
+
+# ---- Dedicated pages: every scan gets its own result + status URL ----
+
+
+def _page(name: str):
+    return FileResponse(STATIC_DIR / name)
+
+
+@app.get("/scans/{scan_id}")
+def scan_result_page(scan_id: str):
+    scan_id = validate_scan_id(scan_id)
+    if not load_job(scan_id):
+        raise HTTPException(404, "scan not found")
+    return _page("scan.html")
+
+
+@app.get("/scans/{scan_id}/status")
+def scan_status_page(scan_id: str):
+    scan_id = validate_scan_id(scan_id)
+    if not load_job(scan_id):
+        raise HTTPException(404, "scan not found")
+    return _page("status.html")
+
+
+@app.get("/repos/{scan_id}")
+def repo_result_page(scan_id: str):
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    if not load_repo_job(scan_id):
+        raise HTTPException(404, "repo scan not found")
+    return _page("scan.html")
+
+
+@app.get("/repos/{scan_id}/status")
+def repo_status_page(scan_id: str):
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    if not load_repo_job(scan_id):
+        raise HTTPException(404, "repo scan not found")
+    return _page("status.html")

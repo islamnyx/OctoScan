@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scan status · Security Precheck</title>
+  <style>
+    :root {
+      --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafc;
+      --border: #dfe4ea; --border-strong: #c9d1db;
+      --text: #1a2330; --muted: #5d6b7d; --faint: #8a97a8;
+      --accent: #1f6feb; --accent-dark: #1a5fd0; --accent-soft: #e8f0fe;
+      --ok: #067647; --ok-bg: #e7f6ee; --err: #b42318; --err-bg: #fdeceb;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar-inner { max-width: 760px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; color: inherit; }
+    .brand-name { font-size: 15px; font-weight: 700; }
+    .backlink { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+    .backlink:hover { text-decoration: underline; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+    .kind { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
+    h1.target { font-size: 19px; margin: 0 0 4px; word-break: break-all; font-weight: 700; letter-spacing: -0.01em; }
+    .scanid { font-family: var(--mono); font-size: 12px; color: var(--faint); margin: 0 0 16px; }
+    .staterow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .st { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-radius: 6px; padding: 3px 10px; }
+    .st.completed { background: var(--ok-bg); color: var(--ok); }
+    .st.failed { background: var(--err-bg); color: var(--err); }
+    .st.running, .st.queued { background: var(--accent-soft); color: #14489b; }
+    .st.paused { background: #fef3e6; color: #b54708; }
+    .elapsed { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .progress { margin: 14px 0 4px; }
+    .progress .bar { height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+    .progress .fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.5s ease; }
+    .stepline { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+    .stepline code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(20,72,155,.25); border-top-color: #14489b; border-radius: 50%; animation: spin 0.9s linear infinite; vertical-align: -2px; margin-right: 7px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .controls { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+    .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; padding: 10px 22px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; }
+    .btn:hover { background: var(--accent-dark); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn.secondary { background: #fff; border-color: var(--border-strong); color: var(--text); }
+    .btn.secondary:hover { background: var(--surface-2); }
+    .btn.danger { background: #fff; border-color: #f3c2bd; color: var(--err); }
+    .btn.danger:hover { background: var(--err-bg); }
+    .note { font-size: 12.5px; color: var(--faint); margin: 14px 0 0; }
+    .errorline { font-size: 13px; color: var(--err); background: var(--err-bg); border: 1px solid #f3c2bd; border-radius: 8px; padding: 9px 13px; margin-top: 14px; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2l7.5 3v6c0 4.6-3.2 8.4-7.5 10-4.3-1.6-7.5-5.4-7.5-10V5L12 2z" fill="#1f6feb"/>
+          <path d="M8.5 12l2.4 2.4L15.7 9.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-name">Security Precheck</span>
+      </a>
+      <a class="backlink" href="/">All scans</a>
+    </div>
+  </header>
+  <main>
+    <div class="card" id="card">
+      <p class="kind" id="kind">Loading…</p>
+      <h1 class="target" id="target">—</h1>
+      <p class="scanid" id="scanid"></p>
+      <div class="staterow"><span class="st queued" id="state">…</span><span class="elapsed" id="elapsed"></span></div>
+      <div class="progress"><div class="bar"><div class="fill" id="fill" style="width:4%;"></div></div></div>
+      <p class="stepline" id="steps"></p>
+      <div id="errbox"></div>
+      <div class="controls">
+        <button class="btn secondary" id="btn-pause" type="button" style="display:none;">Pause</button>
+        <button class="btn" id="btn-resume" type="button" style="display:none;">Resume</button>
+        <button class="btn danger" id="btn-finish" type="button" style="display:none;">Finish now</button>
+        <a class="btn" id="btn-results" href="#" style="display:none; text-decoration:none;">Open results</a>
+      </div>
+      <p class="note" id="note"></p>
+    </div>
+  </main>
+  <script>
+    const parts = location.pathname.split("/").filter(Boolean);
+    const isRepo = parts[0] === "repos";
+    const scanId = parts[1] || "";
+    const apiBase = (isRepo ? "/api/repo-scans/" : "/api/scans/") + encodeURIComponent(scanId);
+    const resultUrl = (isRepo ? "/repos/" : "/scans/") + encodeURIComponent(scanId);
+    const key = (localStorage.getItem("apiKey") || "").trim();
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers["X-API-Key"] = key;
+
+    const kindEl = document.getElementById("kind");
+    const targetEl = document.getElementById("target");
+    const idEl = document.getElementById("scanid");
+    const stateEl = document.getElementById("state");
+    const elapsedEl = document.getElementById("elapsed");
+    const fillEl = document.getElementById("fill");
+    const stepsEl = document.getElementById("steps");
+    const errBox = document.getElementById("errbox");
+    const noteEl = document.getElementById("note");
+    const btnPause = document.getElementById("btn-pause");
+    const btnResume = document.getElementById("btn-resume");
+    const btnFinish = document.getElementById("btn-finish");
+    const btnResults = document.getElementById("btn-results");
+    btnResults.href = resultUrl;
+
+    const t0 = Date.now();
+    const clock = setInterval(() => {
+      elapsedEl.textContent = "elapsed " + Math.floor((Date.now() - t0) / 1000) + "s";
+    }, 1000);
+
+    function esc(s) {
+      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function showButtons(state) {
+      const running = state === "running" || state === "queued";
+      btnPause.style.display = running ? "" : "none";
+      btnResume.style.display = state === "paused" ? "" : "none";
+      btnFinish.style.display = (running || state === "paused") ? "" : "none";
+      btnResults.style.display = (state === "completed" || state === "failed") ? "" : "none";
+    }
+    async function control(action, btn) {
+      btn.disabled = true;
+      try {
+        const res = await fetch(apiBase + "/" + action, { method: "POST", headers });
+        if (!res.ok) {
+          errBox.innerHTML = `<div class="errorline">${esc(action)} failed: ${esc((await res.text()).slice(0, 200))}</div>`;
+        } else {
+          await tick();
+        }
+      } catch (e) {
+        errBox.innerHTML = `<div class="errorline">${esc(action)} failed: connection error.</div>`;
+      }
+      btn.disabled = false;
+    }
+    btnPause.addEventListener("click", () => control("pause", btnPause));
+    btnResume.addEventListener("click", () => control("resume", btnResume));
+    btnFinish.addEventListener("click", () => control("finish", btnFinish));
+
+    let done = false;
+    async function tick() {
+      let res;
+      try {
+        res = await fetch(apiBase, { headers });
+      } catch (e) {
+        kindEl.textContent = "Connection error";
+        targetEl.textContent = "Could not reach the API.";
+        idEl.textContent = "";
+        return;
+      }
+      if (res.status === 403) {
+        kindEl.textContent = "Locked";
+        targetEl.textContent = "This server requires an API key.";
+        idEl.textContent = "";
+        noteEl.innerHTML = 'Set the key on the <a href="/">dashboard</a> once — this page will remember it.';
+        showButtons("locked");
+        clearInterval(poll);
+        return;
+      }
+      if (res.status === 404) {
+        kindEl.textContent = "Not found";
+        targetEl.textContent = "No such scan.";
+        idEl.textContent = esc(scanId);
+        showButtons("missing");
+        clearInterval(poll);
+        return;
+      }
+      const job = await res.json();
+      const label = isRepo ? job.repo_url : job.target_url;
+      kindEl.textContent = (isRepo ? "Codebase scan" : "Web scan") + (job.status === "paused" ? " · paused" : "");
+      targetEl.textContent = label || scanId;
+      idEl.textContent = "id " + job.id;
+      stateEl.className = "st " + job.status;
+      stateEl.textContent = job.status;
+      const nSteps = (job.scanners_run || []).length;
+      const pct = job.status === "completed" ? 100 : job.status === "failed" ? 100 : Math.min(92, 8 + nSteps * 14);
+      fillEl.style.width = pct + "%";
+      const doneList = (job.scanners_run || []).map(s => `<code>${esc(s)}</code>`).join(" ");
+      stepsEl.innerHTML = nSteps
+        ? `${nSteps} step${nSteps === 1 ? "" : "s"} finished: ${doneList}`
+        : "Starting…";
+      if (isRepo && job.files_scanned) {
+        stepsEl.innerHTML += ` · ${job.files_scanned} files indexed`;
+      }
+      errBox.innerHTML = (job.error && job.status === "failed")
+        ? `<div class="errorline">${esc(job.error)}</div>` : "";
+      if (job.error && job.status === "completed") {
+        noteEl.textContent = job.error;
+      }
+      showButtons(job.status);
+      if ((job.status === "completed" || job.status === "failed") && !done) {
+        done = true;
+        clearInterval(poll);
+        clearInterval(clock);
+        noteEl.textContent = "Finished — opening the result page…";
+        setTimeout(() => { location.href = resultUrl; }, 1600);
+      }
+    }
+    const poll = setInterval(tick, 2500);
+    tick();
+  </script>
+</body>
+</html>

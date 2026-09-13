@@ -97,6 +97,17 @@ def _classify(url: str) -> tuple[Severity, str, str] | None:
     return None
 
 
+def _get(url: str) -> tuple[int | None, bytes | None, str]:
+    """Single GET primitive: (status, body, final-url); (None, None, url) on error."""
+    try:
+        import httpx
+
+        r = httpx.get(url, follow_redirects=True, timeout=10.0)
+        return r.status_code, r.content, str(r.url)
+    except Exception:
+        return None, None, url
+
+
 def _fetch_status_body(url: str) -> tuple[int | None, bytes | None]:
     """Best-effort GET. Returns (status_code, body); (None, None) on any error.
 
@@ -104,19 +115,133 @@ def _fetch_status_body(url: str) -> tuple[int | None, bytes | None]:
     definitive non-200 (403/404/…) demotes to INFO — verified 2026-09-13:
     Juice Shop 403s /ftp/*.bak|*.pyc|*.yml while .kdbx returns 200.
     """
-    try:
-        import httpx
-
-        r = httpx.get(url, follow_redirects=True, timeout=10.0)
-        return r.status_code, r.content
-    except Exception:
-        return None, None
+    status, body, _ = _get(url)
+    return status, body
 
 
 def _fetch_body(url: str) -> bytes | None:
     """Back-compat wrapper: body only when HTTP 200, else None."""
     status, body = _fetch_status_body(url)
     return body if status == 200 else None
+
+
+def _fetch(url: str) -> tuple[bytes | None, str]:
+    """Best-effort GET for probes. Returns (body-or-None-on-non-200/error, final-url)."""
+    status, body, final = _get(url)
+    if status != 200:
+        return None, final
+    return body, final
+
+
+def _looks_like_html(body: bytes) -> bool:
+    head = body[:300].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
+
+
+def _is_git_head(body: bytes) -> bool:
+    if _looks_like_html(body) or len(body) > 200:
+        return False
+    text = body.decode("utf-8", "ignore").strip()
+    return bool(
+        re.match(r"ref:\s*refs/", text)
+        or re.match(r"[0-9a-f]{40}\s*$", text)  # detached HEAD
+    )
+
+
+def _is_git_config(body: bytes) -> bool:
+    if _looks_like_html(body) or len(body) > 20000:
+        return False
+    text = body.decode("utf-8", "ignore")
+    return "[core]" in text and "repositoryformatversion" in text
+
+
+def _is_env_file(body: bytes) -> bool:
+    if _looks_like_html(body) or not (20 < len(body) < 100000):
+        return False
+    text = body.decode("utf-8", "ignore")
+    if "=" not in text:
+        return False
+    upper = text.upper()
+    return any(k in upper for k in ("KEY=", "SECRET", "PASSWORD", "DATABASE", "API_KEY", "TOKEN="))
+
+
+def _is_ds_store(body: bytes) -> bool:
+    return body.startswith(b"\x00\x00\x00\x01Bud1")
+
+
+# Direct probes: high-value paths no crawler reliably discovers.
+# Unlike flag_sensitive_files (which re-examines already-seen URLs),
+# these are fetched outright — a handful of GETs, signature-verified,
+# catch-all-compared. (path, label, severity, check, why)
+WELLKNOWN_PROBES: list[tuple[str, str, Severity, object, str]] = [
+    ("/.git/HEAD", "Exposed Git metadata (.git/HEAD)", Severity.high, _is_git_head,
+     "The Git HEAD reference is public. Attackers can reconstruct the full "
+     "repository (including secrets in history) via /.git/ objects."),
+    ("/.git/config", "Exposed Git metadata (.git/config)", Severity.high, _is_git_config,
+     "The Git config is public, confirming a browsable .git directory. "
+     "Full source reconstruction — including secrets in history — applies."),
+    ("/.env", "Exposed environment file (.env)", Severity.high, _is_env_file,
+     ".env files routinely contain production secrets: DB passwords, API keys, session salts."),
+    ("/.DS_Store", "Exposed .DS_Store file", Severity.medium, _is_ds_store,
+     ".DS_Store leaks directory listings and filenames, aiding targeted attacks."),
+]
+
+
+def probe_wellknown(target_url: str) -> list[Finding]:
+    """Fetch a handful of high-value paths and verify their content.
+
+    Pure active check — runs even when no other scanner discovered any
+    URL (e.g. headers-only scans). Same-host only: cross-host redirects
+    are never flagged. Fail-open per probe.
+    """
+    out: list[Finding] = []
+    try:
+        target_host = (urlparse(target_url).hostname or "").lower()
+    except Exception:
+        return out
+    if not target_host:
+        return out
+    base = target_url.rstrip("/")
+    root_body = _fetch_body(target_url)
+    for path, label, severity, check, why in WELLKNOWN_PROBES:
+        url = base + path
+        try:
+            body, final = _fetch(url)
+            if body is None:
+                continue
+            try:
+                if (urlparse(final).hostname or "").lower() != target_host:
+                    continue  # redirected elsewhere — not our finding
+            except Exception:
+                continue
+            if root_body is not None and body == root_body:
+                continue  # catch-all shell, not a real file
+            if not check(body):
+                continue
+            ev = body[:120]
+            try:
+                evidence = ev.decode("utf-8", "ignore")
+                if not evidence.isprintable() and "DS_Store" not in label:
+                    evidence = ev.hex()[:120]
+            except Exception:
+                evidence = ""
+            out.append(
+                Finding(
+                    scanner="sensitive-files",
+                    title=f"{label} at {path}",
+                    severity=severity,
+                    description=f"{why} Verified live at {url} (HTTP 200, content signature matched). "
+                    "Remove it from the public tree and rotate any exposed credentials.",
+                    evidence=evidence[:200],
+                    location=url,
+                    recommendation="Deny dotfiles in server config (e.g. `location ~ /\\. { deny all; }`), "
+                    "remove the file from the web root, and audit access logs for downloads.",
+                    raw={"url": url, "pattern": label, "probed": True, "catch_all_verified": False},
+                )
+            )
+        except Exception:
+            continue
+    return out
 
 
 def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Finding]:

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scan results · Security Precheck</title>
+  <style>
+    :root {
+      --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafc;
+      --border: #dfe4ea; --border-strong: #c9d1db;
+      --text: #1a2330; --muted: #5d6b7d; --faint: #8a97a8;
+      --accent: #1f6feb; --accent-dark: #1a5fd0; --accent-soft: #e8f0fe;
+      --crit: #b42318; --crit-bg: #fdeceb;
+      --high: #b54708; --high-bg: #fef3e6;
+      --med: #92690e; --med-bg: #fef7e0;
+      --low: #067647; --low-bg: #e7f6ee;
+      --info: #475467; --info-bg: #eef1f5;
+      --ok: #067647; --ok-bg: #e7f6ee; --err: #b42318; --err-bg: #fdeceb;
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar-inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; color: inherit; }
+    .brand-name { font-size: 15px; font-weight: 700; }
+    .backlink { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+    .backlink:hover { text-decoration: underline; }
+    main { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
+    .report-head { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 14px; }
+    .kind { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
+    h1.target { font-size: 20px; margin: 0 0 4px; word-break: break-all; letter-spacing: -0.01em; }
+    .meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+    .meta code { font-family: var(--mono); font-size: 12px; }
+    .st { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; }
+    .st.completed { background: var(--ok-bg); color: var(--ok); }
+    .st.failed { background: var(--err-bg); color: var(--err); }
+    .st.running, .st.queued { background: var(--accent-soft); color: #14489b; }
+    .st.paused { background: var(--high-bg); color: var(--high); }
+    .summarybar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
+    .pill { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 11px; }
+    .pill b { font-size: 13.5px; }
+    .pill.critical { background: var(--crit-bg); color: var(--crit); }
+    .pill.high { background: var(--high-bg); color: var(--high); }
+    .pill.medium { background: var(--med-bg); color: var(--med); }
+    .pill.low { background: var(--low-bg); color: var(--low); }
+    .pill.info { background: var(--info-bg); color: var(--info); }
+    .summary-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn { appearance: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: #fff; color: var(--text); }
+    .btn:hover { background: var(--surface-2); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn.primary:hover { background: var(--accent-dark); }
+    .banner { border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; border: 1px solid; }
+    .banner.busy { background: var(--accent-soft); border-color: #c2d7fb; color: #14489b; }
+    .banner.error { background: var(--err-bg); border-color: #f3c2bd; color: #8f1d14; }
+    .banner a { color: inherit; font-weight: 700; }
+    .filterbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .fbtn { appearance: none; border: 1px solid var(--border-strong); background: #fff; color: var(--muted); border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .fbtn:hover { border-color: var(--accent); color: var(--accent); }
+    .fbtn.active { background: var(--text); border-color: var(--text); color: #fff; }
+    .ai-panel { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+    .ai-panel h3 { margin: 0 0 6px; font-size: 13.5px; }
+    .ai-panel h3 .model { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+    .ai-panel p { margin: 0 0 8px; font-size: 13.5px; }
+    .ai-panel ul { margin: 8px 0 4px; padding-left: 18px; font-size: 13px; }
+    details.manifest { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; }
+    details.manifest summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+    details.manifest pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0 2px; }
+    .finding-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+    .finding-head { width: 100%; appearance: none; border: 0; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 12px 16px; font: inherit; cursor: pointer; text-align: left; }
+    .finding-head:hover { background: var(--surface-2); }
+    .finding-head .scanner { font-weight: 700; font-size: 13.5px; }
+    .finding-head .count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+    .finding-head .chev { margin-left: auto; color: var(--faint); font-size: 12px; }
+    .finding-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
+    .finding-body.open { display: block; }
+    table.findings { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.findings th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; padding: 8px 16px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.findings td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.findings tr:last-child td { border-bottom: 0; }
+    table.findings tbody tr:hover { background: #fafbfc; }
+    .sev { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
+    .sev.critical { background: var(--crit-bg); color: var(--crit); }
+    .sev.high { background: var(--high-bg); color: var(--high); }
+    .sev.medium { background: var(--med-bg); color: var(--med); }
+    .sev.low { background: var(--low-bg); color: var(--low); }
+    .sev.info { background: var(--info-bg); color: var(--info); }
+    .f-title { font-weight: 600; }
+    .f-desc { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+    .f-ev { font-family: var(--mono); font-size: 11.5px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; margin-top: 6px; word-break: break-all; }
+    .f-loc { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+    footer { max-width: 1120px; margin: 0 auto; padding: 0 24px 32px; color: var(--faint); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" style="display:flex; align-items:center; gap:10px; margin-right:auto; text-decoration:none; color:inherit;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2l7.5 3v6c0 4.6-3.2 8.4-7.5 10-4.3-1.6-7.5-5.4-7.5-10V5L12 2z" fill="#1f6feb"/>
+          <path d="M8.5 12l2.4 2.4L15.7 9.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-name" style="font-size:15px; font-weight:700;">Security Precheck</span>
+      </a>
+      <a class="backlink" href="/">All scans</a>
+    </div>
+  </header>
+  <main>
+    <div class="report-head">
+      <p class="kind" id="kind">Loading…</p>
+      <h1 class="target" id="target">—</h1>
+      <p class="meta" id="meta"></p>
+    </div>
+    <div id="state-banner"></div>
+    <div id="ai-result"></div>
+    <div class="summarybar" id="counts" style="display:none;"></div>
+    <div class="filterbar" id="filters" style="display:none;">
+      <button class="fbtn active" data-sev="all">All</button>
+      <button class="fbtn" data-sev="critical">Critical</button>
+      <button class="fbtn" data-sev="high">High</button>
+      <button class="fbtn" data-sev="medium">Medium</button>
+      <button class="fbtn" data-sev="low">Low</button>
+      <button class="fbtn" data-sev="info">Info</button>
+    </div>
+    <div id="results"></div>
+  </main>
+  <footer>Findings are advisory — verify before acting.</footer>
+  <script>
+    const parts = location.pathname.split("/").filter(Boolean);
+    const isRepo = parts[0] === "repos";
+    const scanId = parts[1] || "";
+    const apiBase = (isRepo ? "/api/repo-scans/" : "/api/scans/") + encodeURIComponent(scanId);
+    const statusUrl = (isRepo ? "/repos/" : "/scans/") + encodeURIComponent(scanId) + "/status";
+    const key = (localStorage.getItem("apiKey") || "").trim();
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers["X-API-Key"] = key;
+
+    let job = null;
+    let activeSev = "hide-info";
+    const filtersEl = document.getElementById("filters");
+    filtersEl.innerHTML = `<button class="fbtn active" data-sev="hide-info">Hide info</button>`
+      + `<button class="fbtn" data-sev="all">All</button>`
+      + filtersEl.innerHTML;
+    filtersEl.querySelectorAll(".fbtn").forEach(b => {
+      b.addEventListener("click", () => {
+        filtersEl.querySelectorAll(".fbtn").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        activeSev = b.dataset.sev;
+        if (job) render(job);
+      });
+    });
+
+    function esc(s) {
+      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    async function load() {
+      let res;
+      try {
+        res = await fetch(apiBase, { headers });
+      } catch (e) {
+        document.getElementById("kind").textContent = "Connection error";
+        document.getElementById("target").textContent = "Could not reach the API.";
+        return;
+      }
+      if (res.status === 403) {
+        document.getElementById("kind").textContent = "Locked";
+        document.getElementById("target").textContent = "This server requires an API key — set it on the dashboard once, then reopen this page.";
+        return;
+      }
+      if (!res.ok) {
+        document.getElementById("kind").textContent = "Not found";
+        document.getElementById("target").textContent = "No such scan.";
+        return;
+      }
+      job = await res.json();
+      render(job);
+    }
+
+    function render(j) {
+      const label = isRepo ? j.repo_url : j.target_url;
+      document.getElementById("kind").textContent = isRepo ? "Codebase scan report" : "Web scan report";
+      document.getElementById("target").textContent = label || j.id;
+      const finished = j.finished_at ? new Date(j.finished_at).toLocaleString() : "not finished";
+      const extra = isRepo ? ` · ${j.files_scanned || 0} files` : ` · ${(j.scanners_run || []).join(", ")}`;
+      document.getElementById("meta").innerHTML =
+        `<span class="st ${j.status}">${esc(j.status)}</span> &nbsp;id <code>${esc(j.id)}</code> · finished ${esc(finished)}${esc(extra)}`;
+
+      const banner = document.getElementById("state-banner");
+      if (j.status === "running" || j.status === "queued" || j.status === "paused") {
+        banner.innerHTML = `<div class="banner busy">This scan is <b>&nbsp;${esc(j.status)}&nbsp;</b> — showing partial results. <a href="${statusUrl}">Open the live status page</a></div>`;
+      } else if (j.status === "failed" && !(j.findings || []).length) {
+        banner.innerHTML = `<div class="banner error">${esc(j.error || "Scan failed.")}</div>`;
+      } else {
+        banner.innerHTML = (j.error || "").indexOf("Finished early") === 0
+          ? `<div class="banner busy">${esc(j.error)}</div>` : "";
+      }
+
+      const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      (j.findings || []).forEach(f => { if (counts[f.severity] !== undefined) counts[f.severity]++; });
+      const countsEl = document.getElementById("counts");
+      countsEl.style.display = "flex";
+      countsEl.innerHTML = ["critical", "high", "medium", "low", "info"]
+        .map(k => `<span class="pill ${k}">${k}<b>${counts[k]}</b></span>`).join("")
+        + `<span class="summary-actions" style="margin-left:auto; display:flex; gap:8px;"></span>`;
+      const actions = countsEl.querySelector(".summary-actions");
+      const mkBtn = (label, primary, fn) => {
+        const b = document.createElement("button");
+        b.className = "btn" + (primary ? " primary" : "");
+        b.textContent = label;
+        b.addEventListener("click", fn);
+        actions.appendChild(b);
+      };
+      mkBtn("Export JSON", false, () => {
+        const a = document.createElement("a");
+        a.href = isRepo ? apiBase : apiBase + "/export";
+        a.download = `scan-${j.id}.json`;
+        a.click();
+      });
+      if (!isRepo) mkBtn("Text report", false, () => window.open(apiBase + "/report", "_blank"));
+      mkBtn("AI triage", true, async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "AI working…";
+        try {
+          const res = await fetch(apiBase + "/ai-analyze", { method: "POST", headers });
+          if (!res.ok) {
+            banner.innerHTML = `<div class="banner error">AI triage failed: ${esc((await res.text()).slice(0, 250))}</div>`;
+          } else {
+            job = await res.json();
+            render(job);
+          }
+        } catch (e) {
+          banner.innerHTML = `<div class="banner error">AI triage failed: connection error.</div>`;
+        }
+        btn.disabled = false;
+        btn.textContent = "AI triage";
+      });
+      filtersEl.style.display = "flex";
+
+      const aiBox = document.getElementById("ai-result");
+      aiBox.innerHTML = "";
+      const aiFinding = (j.findings || []).find(f => f.scanner === "ai");
+      if (j.ai && j.ai.summary) {
+        aiBox.innerHTML = `<div class="ai-panel"><h3>AI triage <span class="model">· ${esc(j.ai.model || j.ai.provider || "")}</span></h3>`
+          + `<p>${esc(j.ai.summary)}</p>`
+          + ((j.ai.prioritized_fixes || []).length ? `<ul>${j.ai.prioritized_fixes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
+          + (j.ai.false_positive_notes ? `<div class="fp" style="font-size:12.5px;color:var(--muted);">On false positives: ${esc(j.ai.false_positive_notes)}</div>` : "")
+          + `</div>`;
+      } else if (aiFinding) {
+        aiBox.innerHTML = `<div class="ai-panel"><h3>AI triage</h3><p>${esc(aiFinding.description || "")}</p></div>`;
+      }
+
+      const visible = (j.findings || []).filter(f => {
+        if (activeSev === "hide-info" && f.severity === "info") return false;
+        if (activeSev !== "all" && activeSev !== "hide-info" && f.severity !== activeSev) return false;
+        return true;
+      });
+      const manifests = visible.filter(f => f.scanner === "ai-code-review" && (f.title || "").indexOf("AI review manifest") === 0);
+      const rest = visible.filter(f => !(f.scanner === "ai-code-review" && (f.title || "").indexOf("AI review manifest") === 0));
+      const byScanner = {};
+      rest.forEach(f => { (byScanner[f.scanner] = byScanner[f.scanner] || []).push(f); });
+
+      const resultsEl = document.getElementById("results");
+      resultsEl.innerHTML = "";
+      manifests.forEach(m => {
+        const d = document.createElement("details");
+        d.className = "manifest";
+        const lines = ((m.raw || {}).manifest || []).map(x => esc(x)).join("\n");
+        d.innerHTML = `<summary>${esc(m.title)}</summary><pre>${lines || esc(m.description || "")}</pre>`;
+        resultsEl.appendChild(d);
+      });
+      Object.keys(byScanner).sort((a, b) => {
+        if (a === "ai-code-review") return -1;
+        if (b === "ai-code-review") return 1;
+        return a.localeCompare(b);
+      }).forEach(scanner => {
+        const findings = byScanner[scanner];
+        const section = document.createElement("div");
+        section.className = "finding-group";
+        const head = document.createElement("button");
+        head.className = "finding-head";
+        head.innerHTML = `<span class="scanner">${esc(scanner)}</span><span class="count">${findings.length}</span><span class="chev">▾</span>`;
+        const body = document.createElement("div");
+        body.className = "finding-body open";
+        head.addEventListener("click", () => {
+          body.classList.toggle("open");
+          head.querySelector(".chev").textContent = body.classList.contains("open") ? "▾" : "▸";
+        });
+        const table = document.createElement("table");
+        table.className = "findings";
+        table.innerHTML = `<thead><tr><th style="width:90px;">Severity</th><th>Finding</th><th>Location</th><th style="width:26%;">Recommended fix</th></tr></thead>`;
+        const tbody = document.createElement("tbody");
+        findings.forEach(f => {
+          const tr = document.createElement("tr");
+          const raw = f.raw || {};
+          const merged = raw.merged_count > 1
+            ? `<span class="merged-tag" style="display:inline-block;font-size:11px;font-weight:600;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;" title="${esc((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged</span>` : "";
+          tr.innerHTML = `<td><span class="sev ${f.severity}">${f.severity}</span></td>`
+            + `<td><span class="f-title">${esc(f.title)}</span>${merged}`
+            + `<div class="f-desc">${esc((f.description || "").slice(0, 400))}</div>`
+            + (f.evidence ? `<div class="f-ev">${esc(f.evidence.slice(0, 300))}</div>` : "")
+            + (f.cve ? `<div class="f-ev">${esc(f.cve)}</div>` : "") + `</td>`
+            + `<td><span class="f-loc">${esc(f.location)}</span></td>`
+            + `<td>${esc(f.recommendation || "—")}</td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        body.appendChild(table);
+        section.appendChild(head);
+        section.appendChild(body);
+        resultsEl.appendChild(section);
+      });
+      if (!resultsEl.hasChildNodes()) {
+        resultsEl.innerHTML = `<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px;color:var(--muted);">No findings match this filter.</div>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

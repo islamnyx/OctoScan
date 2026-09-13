@@ -52,8 +52,30 @@ class Settings(BaseSettings):
     allow_private_targets: bool = False
     scan_rate_limit: int = 10
     scan_rate_window_s: int = 60
+    # ---- Phase 2: repo / source scans ----
+    git_bin: str = "git"
+    gitleaks_bin: str = "gitleaks"
+    semgrep_bin: str = "semgrep"
+    repos_dir: Path = ROOT / "data" / "repos"
+    repo_clone_timeout_s: int = 120
+    repo_max_files: int = 20000
+    repo_max_bytes: int = 200 * 1024 * 1024
+    # ---- Phase 2: BYO AI (OpenAI-compatible) ----
+    # Any provider exposing POST {base}/chat/completions works:
+    # OpenAI, OpenRouter, Together, Groq, Ollama, LM Studio, vLLM, custom.
+    ai_provider: str = ""
+    ai_base_url: str = ""
+    ai_api_key: str = ""
+    ai_model: str = ""
+    ai_timeout_s: int = 60
+    ai_max_tokens: int = 2000
+    # AI code review bounds: which/how much code the model reads.
+    ai_review_max_files: int = 8
+    ai_review_max_bytes: int = 90000
+    ai_review_max_tokens: int = 500
 
 
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 (settings.data_dir / "scans").mkdir(parents=True, exist_ok=True)
+(settings.repos_dir if isinstance(settings.repos_dir, Path) else ROOT / "data" / "repos").mkdir(parents=True, exist_ok=True)
