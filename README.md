@@ -41,10 +41,13 @@ cp .env.example .env
 # Edit .env and set API_KEY if you want auth enabled
 
 # 5. Start ZAP daemon (authenticated — never disablekey=true)
+# 4g heap (1g OOM-crashed Juice Shop 2026-09-13), offline flags stop the
+# "ZAP is Out of Date" passive rule hanging 60s/url with no internet.
 ZAP_API_KEY="$(openssl rand -hex 32)"; echo "ZAP_API_KEY=$ZAP_API_KEY" >> .env
-java -Xmx512m -jar /usr/share/zaproxy/zap-2.17.0.jar \
-  -daemon -port 8090 -host 127.0.0.1 \
-  -config api.key=$ZAP_API_KEY -config api.disablekey=false
+java -Xmx4g -jar /usr/share/zaproxy/zap-2.17.0.jar \
+  -daemon -port 8090 -host 127.0.0.1 -newsession clean \
+  -config api.key=$ZAP_API_KEY -config api.disablekey=false \
+  -config autoupdate.checkOnStart=false -config callhome.callHome=false
 
 # 6. Start the API
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000

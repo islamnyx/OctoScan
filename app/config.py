@@ -19,6 +19,22 @@ class Settings(BaseSettings):
     zap_port: int = 8090
     zap_base_url: str = "http://127.0.0.1:8090"
     zap_api_key: str = ""
+    # OOM guard (2026-09-13: AJAX spider spawned ~18 firefox-esr + 4G ZAP heap
+    # on Juice Shop's 130-node tree -> 11.8G peak -> systemd-oomd SIGKILLed
+    # java + firefox + uvicorn together). AJAX off by default; enable only
+    # for JS-heavy SPAs when you have RAM headroom.
+    zap_enable_ajax_spider: bool = False
+    zap_ajax_timeout_seconds: int = 60
+    # Active scan cap: recurse=false + top-N dynamic URLs only. Static assets
+    # (.js/.css/.map/fonts/images) never carry ascan vulns, only noise.
+    zap_ascan_recurse: bool = False
+    zap_ascan_max_targets: int = 20
+    # Shared ascan budget (timeout fix 2026-09-13): one total budget for all
+    # targets instead of dividing per-target (60s each timed out on Juice
+    # Shop's 103s/host). Env-overridable so full-strength validation runs
+    # can raise it without code changes; capped saved us from OOM, keep 600.
+    zap_ascan_budget_seconds: int = 600
+    zap_ascan_per_target_seconds: int = 300
     nuclei_severity: str = "critical,high,medium,low"
     # Don't DoS the target: full template set at nuclei defaults (25
     # concurrent, 150 req/s) OOM-killed Juice Shop in testing (3 GB heap).

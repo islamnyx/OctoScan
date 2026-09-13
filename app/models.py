@@ -63,6 +63,15 @@ class ScanJob(BaseModel):
     error: str | None = None
     scanners_run: list[str] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    # Per-scanner coverage metadata (scope actually achieved), kept out of
+    # findings so severity counts only reflect real vulns. Old job.json
+    # files without this field still load via the default.
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    # DAST quality gate (FAIL/WARN per ZAP rule, see app/rules.py).
+    # Independent of status: completed = scanners ran fine, gate = verdict
+    # on findings. Defaults keep old job.json files loadable.
+    gate: str = "unknown"
+    gate_details: list[str] = Field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
         counts = {s.value: 0 for s in Severity}

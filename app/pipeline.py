@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from app.config import settings
 from app.models import Finding, ScanJob, ScanStatus
 from app.normalize import prioritize
+from app.rules import evaluate_gate
 from app.scanners import SCANNERS
 from app.scanners.headers_scanner import HeadersScanner
 from app.scanners.nikto_scanner import NiktoScanner
@@ -16,15 +17,16 @@ from app.scanners.zap_scanner import ZapScanner
 from app.sensitive import flag_sensitive_files
 from app.store import load_job, save_job
 
-# Light -> heavy so a crash/interrupt still leaves useful partial results
-# and the laptop never spikes all heavy scanners at once.
+# ZAP first: it needs a fresh daemon/session + most memory, and its
+# spider output (Sites tree) is most reliable before nuclei/nikto hammer
+# the target. Light scanners follow so a crash still leaves partials.
 SEQUENTIAL_ORDER = [
+    ZapScanner,
     HeadersScanner,
     NmapScanner,
     TestsslScanner,
     NiktoScanner,
     NucleiScanner,
-    ZapScanner,
 ]
 
 
@@ -43,7 +45,9 @@ def run_scan(scan_id: str) -> ScanJob:
 
     def _run(scanner_cls):
         scanner = scanner_cls(job.target_url, workdir)
-        return scanner.name, scanner.run()
+        findings_result = scanner.run()
+        coverage_result = dict(getattr(scanner, "coverage", None) or {})
+        return scanner.name, findings_result, coverage_result
 
     # Lower CPU priority so the desktop stays responsive on laptops.
     try:
@@ -59,9 +63,11 @@ def run_scan(scan_id: str) -> ScanJob:
         # checkpoint after each so a shutdown leaves partial results.
         for cls in ordered:
             try:
-                scanner_name, result = _run(cls)
+                scanner_name, result, coverage = _run(cls)
                 job.scanners_run.append(scanner_name)
                 findings.extend(result)
+                if coverage:
+                    job.coverage[scanner_name] = coverage
             except Exception as exc:
                 errors.append(f"{cls.name}: {exc}")
             job.findings = prioritize(findings)
@@ -73,9 +79,11 @@ def run_scan(scan_id: str) -> ScanJob:
             for future in as_completed(futures):
                 name = futures[future]
                 try:
-                    scanner_name, result = future.result()
+                    scanner_name, result, coverage = future.result()
                     job.scanners_run.append(scanner_name)
                     findings.extend(result)
+                    if coverage:
+                        job.coverage[scanner_name] = coverage
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
                 job.findings = prioritize(findings)
@@ -93,6 +101,10 @@ def run_scan(scan_id: str) -> ScanJob:
         job.scanners_run.append("sensitive-files")
     except Exception as exc:
         errors.append(f"sensitive-files: {exc}")
+    # DAST quality gate (skill Step 4): FAIL on exploitable rules
+    # (XSS/SQLi pluginIds, high/critical active findings), WARN on
+    # headers/misconfigs. Verdict only — never overrides job.status.
+    job.gate, job.gate_details = evaluate_gate(job.findings)
     job.finished_at = datetime.now(timezone.utc)
     if errors and not findings:
         job.status = ScanStatus.failed

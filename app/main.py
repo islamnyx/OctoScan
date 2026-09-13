@@ -114,6 +114,8 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
         f"Started: {job.started_at}",
         f"Finished: {job.finished_at}",
         f"Scanners: {', '.join(job.scanners_run)}",
+        f"Quality gate: {job.gate}",
+        *[f"  FAIL: {d}" for d in (job.gate_details or [])],
         "",
         "Summary",
         "-" * 40,

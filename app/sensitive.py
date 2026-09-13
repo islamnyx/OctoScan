@@ -97,15 +97,26 @@ def _classify(url: str) -> tuple[Severity, str, str] | None:
     return None
 
 
-def _fetch_body(url: str) -> bytes | None:
-    """Best-effort GET. Returns None on any error (fail-open: caller keeps the finding)."""
+def _fetch_status_body(url: str) -> tuple[int | None, bytes | None]:
+    """Best-effort GET. Returns (status_code, body); (None, None) on any error.
+
+    Fail-open lives with the caller: network errors (None) keep the HIGH,
+    definitive non-200 (403/404/…) demotes to INFO — verified 2026-09-13:
+    Juice Shop 403s /ftp/*.bak|*.pyc|*.yml while .kdbx returns 200.
+    """
     try:
         import httpx
 
         r = httpx.get(url, follow_redirects=True, timeout=10.0)
-        return r.content if r.status_code == 200 else None
+        return r.status_code, r.content
     except Exception:
-        return None
+        return None, None
+
+
+def _fetch_body(url: str) -> bytes | None:
+    """Back-compat wrapper: body only when HTTP 200, else None."""
+    status, body = _fetch_status_body(url)
+    return body if status == 200 else None
 
 
 def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Finding]:
@@ -135,6 +146,7 @@ def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Findi
             seen.setdefault(u.split("#")[0], set()).add(f.scanner)
 
     out: list[Finding] = []
+    unverifiable: list[str] = []
     catchall_skipped: list[str] = []
     # SPA catch-all check (same technique as NiktoScanner._is_spa_catchall):
     # servers like Juice Shop answer unknown paths with HTTP 200 + index.html,
@@ -151,7 +163,37 @@ def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Findi
             root_body = _fetch_body(target_url)
             root_fetched = True
         if root_body is not None:
-            body = _fetch_body(url)
+            status, body = _fetch_status_body(url)
+            if status is not None and status != 200:
+                # Definitive negative: pattern matched but server refuses
+                # (Juice Shop: 403 on *.bak/*.pyc/*.yml, 200 on .kdbx).
+                # Demote to INFO instead of a false HIGH.
+                severity, label, why = classified
+                basename = _path(url).rsplit("/", 1)[-1]
+                out.append(
+                    Finding(
+                        scanner="sensitive-files",
+                        title=f"Sensitive-named URL not retrievable (HTTP {status}): {basename} ({label})",
+                        severity=Severity.info,
+                        description=(
+                            f"{why} Pattern matched at {url}, but live fetch returned "
+                            f"HTTP {status} — file not exposed right now. Kept as INFO "
+                            "in case the block is temporary or path-dependent."
+                        ),
+                        evidence=f"GET {url} -> HTTP {status}",
+                        location=url,
+                        recommendation="No immediate action; re-check if server config changes. Keep the deny rule that returns this status.",
+                        raw={
+                            "url": url,
+                            "pattern": label,
+                            "discovered_by": sorted(seen[url]),
+                            "http_status": status,
+                            "catch_all_verified": False,
+                        },
+                    )
+                )
+                unverifiable.append(f"{url} (HTTP {status})")
+                continue
             if body is not None and body == root_body:
                 catchall_skipped.append(url)
                 continue

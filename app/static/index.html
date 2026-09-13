@@ -56,7 +56,8 @@
     <div id="status" class="status"></div>
     <div id="counts" class="counts"></div>
     <div class="filters" id="filters" style="display:none;">
-      <button class="fbtn active" data-sev="all">All</button>
+      <button class="fbtn active" data-sev="hide-info">Hide info</button>
+      <button class="fbtn" data-sev="all">All</button>
       <button class="fbtn" data-sev="critical">Critical</button>
       <button class="fbtn" data-sev="high">High</button>
       <button class="fbtn" data-sev="medium">Medium</button>
@@ -90,7 +91,7 @@
     }
     let poll;
     let currentJob = null;
-    let activeSev = "all";
+    let activeSev = "hide-info";
     let query = "";
     const filtersEl = document.getElementById("filters");
     const qInput = document.getElementById("q");
@@ -209,7 +210,8 @@
       const byScanner = {};
       const q = query;
       const visible = job.findings.filter(f => {
-        if (activeSev !== "all" && f.severity !== activeSev) return false;
+        if (activeSev === "hide-info" && f.severity === "info") return false;
+        if (activeSev !== "all" && activeSev !== "hide-info" && f.severity !== activeSev) return false;
         if (q && !((f.title || "") + " " + (f.description || "") + " " + (f.location || "")).toLowerCase().includes(q)) return false;
         return true;
       });
