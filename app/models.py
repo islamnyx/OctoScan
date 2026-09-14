@@ -129,6 +129,17 @@ class AIConfigRequest(BaseModel):
     base_url: str = Field(default="", max_length=512)
     api_key: str = Field(default="", max_length=512)
     model: str = Field(default="", max_length=128)
+    # Provider-profile name (multi-provider support).
+    name: str = Field(default="", max_length=64)
+
+
+class AIProviderRequest(BaseModel):
+    name: str = Field(max_length=64)
+    provider: str = Field(default="", max_length=64)
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=512)
+    model: str = Field(default="", max_length=128)
+    activate: bool = False
 
 
 class AIConfigResponse(BaseModel):

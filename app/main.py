@@ -10,6 +10,7 @@ from app.config import ROOT, settings
 from app.models import (
     AIConfigRequest,
     AIConfigResponse,
+    AIProviderRequest,
     RepoScanJob,
     RepoScanRequest,
     ScanJob,
@@ -181,12 +182,58 @@ def ai_save_config(req: AIConfigRequest, api_key: str = Depends(require_api_key)
     return AIConfigResponse(**ai_layer.masked(cfg))
 
 
+@app.get("/api/ai/providers")
+def ai_providers(api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    return ai_layer.list_providers()
+
+
+@app.post("/api/ai/providers")
+def ai_provider_save(req: AIProviderRequest, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    try:
+        ai_layer.upsert_provider(
+            name=req.name, provider=req.provider, base_url=req.base_url,
+            api_key=req.api_key, model=req.model, activate=req.activate,
+        )
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:500])
+    return ai_layer.list_providers()
+
+
+@app.post("/api/ai/providers/{name}/activate")
+def ai_provider_activate(name: str, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    try:
+        ai_layer.activate_provider(name)
+    except Exception as exc:
+        raise HTTPException(404, str(exc)[:300])
+    return ai_layer.list_providers()
+
+
+@app.delete("/api/ai/providers/{name}")
+def ai_provider_delete(name: str, api_key: str = Depends(require_api_key)):
+    from app import ai as ai_layer
+
+    ai_layer.delete_provider(name)
+    return ai_layer.list_providers()
+
+
 @app.post("/api/ai/test")
 def ai_test(req: AIConfigRequest | None = None, api_key: str = Depends(require_api_key)):
     from app import ai as ai_layer
 
     cfg = ai_layer.load_config()
-    if req and (req.base_url or req.model):
+    if req and req.name and not (req.base_url or req.api_key):
+        saved = {p["name"]: p for p in ai_layer.list_providers()["providers"]}
+        p = saved.get(req.name)
+        if p:
+            cfg = {"provider": p["provider"], "base_url": p["base_url"],
+                   "api_key": p["api_key"] if p["has_key"] else "", "model": p["model"]}
+    elif req and (req.base_url or req.model):
         cfg = {
             "provider": req.provider or cfg.get("provider", ""),
             "base_url": req.base_url or cfg.get("base_url", ""),
@@ -209,7 +256,13 @@ def ai_models(req: AIConfigRequest | None = None, api_key: str = Depends(require
     from app import ai as ai_layer
 
     cfg = ai_layer.load_config()
-    if req and (req.base_url or req.api_key):
+    if req and req.name and not (req.base_url or req.api_key):
+        saved = {p["name"]: p for p in ai_layer.list_providers()["providers"]}
+        p = saved.get(req.name)
+        if p:
+            cfg = {"provider": p["provider"], "base_url": p["base_url"],
+                   "api_key": p["api_key"] if p["has_key"] else "", "model": p["model"]}
+    elif req and (req.base_url or req.api_key):
         cfg = {
             "provider": req.provider or cfg.get("provider", ""),
             "base_url": req.base_url or cfg.get("base_url", ""),

@@ -34,51 +34,136 @@ PROVIDER_PRESETS: dict[str, str] = {
 }
 
 
-def _defaults() -> dict[str, str]:
-    return {
-        "provider": (settings.ai_provider or "").strip()[:64],
-        "base_url": (settings.ai_base_url or "").strip().rstrip("/")[:512],
-        "api_key": (settings.ai_api_key or "")[:512],
-        "model": (settings.ai_model or "").strip()[:128],
-    }
+def _load_store() -> dict:
+    """Provider store: {active: name, providers: {name: cfg}}.
 
-
-def load_config() -> dict[str, str]:
-    cfg = _defaults()
+    Migrates the legacy single-provider flat format transparently.
+    """
     try:
-        if CONFIG_PATH.exists():
-            disk = json.loads(CONFIG_PATH.read_text())
-            if isinstance(disk, dict):
-                for k in ("provider", "base_url", "api_key", "model"):
-                    v = disk.get(k)
-                    if isinstance(v, str) and v.strip():
-                        cfg[k] = v.strip()[:512]
-                cfg["base_url"] = cfg["base_url"].rstrip("/")
+        data = json.loads(CONFIG_PATH.read_text())
     except Exception:
-        pass
-    return cfg
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if not isinstance(data.get("providers"), dict):
+        name = (data.get("provider") or "").strip()[:64] or "default"
+        data = {
+            "active": name,
+            "providers": {
+                name: {
+                    "name": name,
+                    "provider": name,
+                    "base_url": (data.get("base_url") or "").strip(),
+                    "api_key": (data.get("api_key") or ""),
+                    "model": (data.get("model") or ""),
+                }
+            },
+        }
+    if not data.get("providers"):
+        data["providers"] = {}
+    if not data.get("active") or data["active"] not in data["providers"]:
+        data["active"] = next(iter(data["providers"]), "")
+    return data
 
 
-def save_config(provider: str, base_url: str, api_key: str, model: str) -> dict[str, str]:
-    cfg = {
-        "provider": (provider or "").strip()[:64],
-        "base_url": (base_url or "").strip().rstrip("/")[:512],
-        "api_key": (api_key or "")[:512],
-        "model": (model or "").strip()[:128],
+def _write_store(store: dict) -> None:
+    active = store["providers"].get(store.get("active") or "", {})
+    data = {
+        "active": store.get("active", ""),
+        "providers": store["providers"],
+        # Flattened active provider: legacy readers stay working.
+        "provider": active.get("provider", ""),
+        "base_url": active.get("base_url", ""),
+        "api_key": active.get("api_key", ""),
+        "model": active.get("model", ""),
     }
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     # Key on disk with 0600 intent; best-effort on Windows.
+    CONFIG_PATH.write_text(json.dumps(data, indent=2))
     try:
-        CONFIG_PATH.write_text(json.dumps({k: v for k, v in cfg.items() if k != "api_key" or True}, indent=2))
-        try:
-            import os
+        import os
 
-            os.chmod(CONFIG_PATH, 0o600)
-        except Exception:
-            pass
-    except Exception as exc:
-        raise RuntimeError(f"cannot persist AI config: {exc}")
-    return cfg
+        os.chmod(CONFIG_PATH, 0o600)
+    except Exception:
+        pass
+
+
+def list_providers() -> dict:
+    store = _load_store()
+    out = []
+    for name, p in store["providers"].items():
+        out.append({
+            "name": name,
+            "provider": p.get("provider", ""),
+            "base_url": p.get("base_url", ""),
+            "model": p.get("model", ""),
+            "has_key": bool(p.get("api_key")),
+            "active": name == store.get("active"),
+        })
+    return {"active": store.get("active", ""), "providers": out}
+
+
+def upsert_provider(
+    name: str = "",
+    provider: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    model: str = "",
+    activate: bool = False,
+) -> dict:
+    """Add or update a provider profile. Empty api_key keeps the stored one."""
+    store = _load_store()
+    name = (name or "").strip()[:64] or (provider or "").strip()[:64] or "default"
+    existing = store["providers"].get(name, {})
+    p = {
+        "name": name,
+        "provider": (provider or existing.get("provider") or name).strip()[:64],
+        "base_url": (base_url or existing.get("base_url", "")).strip().rstrip("/")[:512],
+        "api_key": (api_key if api_key else existing.get("api_key", ""))[:512],
+        "model": (model or existing.get("model", "")).strip()[:128],
+    }
+    store["providers"][name] = p
+    if activate or not store.get("active"):
+        store["active"] = name
+    _write_store(store)
+    return p
+
+
+def delete_provider(name: str) -> None:
+    store = _load_store()
+    store["providers"].pop(name, None)
+    if store.get("active") == name:
+        store["active"] = next(iter(store["providers"]), "")
+    _write_store(store)
+
+
+def activate_provider(name: str) -> dict:
+    store = _load_store()
+    if name not in store["providers"]:
+        raise RuntimeError(f"no such provider: {name}")
+    store["active"] = name
+    _write_store(store)
+    return store["providers"][name]
+
+
+def load_config() -> dict[str, str]:
+    """Active provider's config (backward-compatible flat dict)."""
+    store = _load_store()
+    p = store["providers"].get(store.get("active") or "", {})
+    return {
+        "name": p.get("name", ""),
+        "provider": p.get("provider", ""),
+        "base_url": p.get("base_url", ""),
+        "api_key": p.get("api_key", ""),
+        "model": p.get("model", ""),
+    }
+
+
+def save_config(provider: str, base_url: str, api_key: str, model: str) -> dict[str, str]:
+    """Legacy entry point: upserts under the provider-type name and activates."""
+    p = upsert_provider(name=provider or "default", provider=provider,
+                        base_url=base_url, api_key=api_key, model=model, activate=True)
+    return {k: p.get(k, "") for k in ("provider", "base_url", "api_key", "model")}
 
 
 def masked(cfg: dict[str, str]) -> dict[str, Any]:
@@ -174,14 +259,29 @@ def list_models(cfg: dict[str, str] | None = None) -> dict[str, Any]:
     if items is None and isinstance(data, list):
         items = data
     ids: list[str] = []
+    entries: list[dict[str, str]] = []
     for m in items or []:
         if isinstance(m, dict):
             mid = m.get("id") or m.get("name") or m.get("model")
-            if mid:
-                ids.append(str(mid))
+            if not mid:
+                continue
+            mid = str(mid)
+            owner = str(m.get("owned_by") or m.get("owner") or "").strip()
+            ids.append(mid)
+            entries.append({"id": mid, "owner": owner})
         elif isinstance(m, str):
             ids.append(m)
-    return {"models": sorted(set(ids))}
+            entries.append({"id": m, "owner": ""})
+    # De-dupe by id, keep first owner seen.
+    seen: dict[str, str] = {}
+    for e in entries:
+        seen.setdefault(e["id"], e["owner"])
+    entries = [{"id": k, "owner": v} for k, v in sorted(seen.items())]
+    return {
+        "models": sorted(seen),
+        "entries": entries,
+        "provider": (cfg.get("provider") or "").strip(),
+    }
 
 
 def _findings_digest(findings: list[Finding], limit: int = 40) -> str:
