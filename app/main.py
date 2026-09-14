@@ -249,7 +249,12 @@ def create_repo_scan(req: RepoScanRequest, request: Request, api_key: str = Depe
     branch = validate_branch(req.branch)
     job = RepoScanJob(repo_url=repo_url, branch=branch, ai_requested=req.include_ai)
     save_repo_job(job)
-    Thread(target=run_repo_scan, args=(job.id,), kwargs={"run_ai": req.include_ai}, daemon=True).start()
+    Thread(
+        target=run_repo_scan,
+        args=(job.id,),
+        kwargs={"run_ai": req.include_ai, "ai_model": req.ai_model},
+        daemon=True,
+    ).start()
     return job
 
 

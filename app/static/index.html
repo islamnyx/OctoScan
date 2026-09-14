@@ -150,6 +150,13 @@
               <button type="submit" id="repo-btn" class="btn">Scan codebase</button>
               <label class="checkline"><input id="repo-ai" type="checkbox" /> AI reads the code too</label>
             </div>
+            <div id="repo-ai-models" style="display:none; margin-top:12px;">
+              <div class="field" style="max-width:420px;">
+                <label for="repo-ai-model">AI model for this scan</label>
+                <select id="repo-ai-model"><option value="">loading…</option></select>
+                <span class="note" id="repo-ai-model-note"></span>
+              </div>
+            </div>
             <p class="formhint">Shallow-clones the repo and runs secret + SAST scans. Code is never executed.</p>
           </form>
           <div id="repo-status" class="banner" role="status"></div>
@@ -325,13 +332,18 @@
       const repo_url = document.getElementById("repo-url").value.trim();
       const branch = document.getElementById("repo-branch").value.trim() || null;
       const include_ai = document.getElementById("repo-ai").checked;
+      const ai_model = include_ai ? (document.getElementById("repo-ai-model").value || null) : null;
       if (!repo_url) return;
+      if (include_ai && !ai_model) {
+        setBanner(repoStatusEl, "error", "Pick an AI model for this scan (or connect a provider in the AI provider tab).");
+        return;
+      }
       setBanner(repoStatusEl, "", "");
       repoBtn.disabled = true;
       try {
         const res = await fetch("/api/repo-scans", {
           method: "POST", headers: apiHeaders(),
-          body: JSON.stringify({ repo_url, branch, include_ai })
+          body: JSON.stringify({ repo_url, branch, include_ai, ai_model })
         });
         if (!res.ok) {
           setBanner(repoStatusEl, "error", `Could not start the scan: ${escapeHtml((await res.text()).slice(0, 250))}`);
@@ -343,6 +355,37 @@
       } catch (err) {
         setBanner(repoStatusEl, "error", "Could not start the scan: connection error.");
         repoBtn.disabled = false;
+      }
+    });
+
+    const repoAiBox = document.getElementById("repo-ai-models");
+    const repoAiModel = document.getElementById("repo-ai-model");
+    const repoAiNote = document.getElementById("repo-ai-model-note");
+    const repoAiCheck = document.getElementById("repo-ai");
+    repoAiCheck.addEventListener("change", async () => {
+      if (!repoAiCheck.checked) { repoAiBox.style.display = "none"; return; }
+      repoAiBox.style.display = "";
+      repoAiModel.innerHTML = `<option value="">loading…</option>`;
+      try {
+        const cfgRes = await fetch("/api/ai/config", { headers: apiHeaders() });
+        const cfg = cfgRes.ok ? await cfgRes.json() : { configured: false };
+        if (!cfg.configured) {
+          repoAiModel.innerHTML = `<option value="">no provider connected</option>`;
+          repoAiNote.innerHTML = `No AI provider connected yet — set one up in the <a href="#" onclick="document.querySelector('[data-tab=pane-ai]').click(); return false;">AI provider tab</a>.`;
+          return;
+        }
+        const res = await fetch("/api/ai/models", { method: "POST", headers: apiHeaders(), body: "{}" });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 140));
+        const data = await res.json();
+        const models = data.models || [];
+        repoAiModel.innerHTML = models.length
+          ? models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("")
+          : `<option value="">provider returned no models</option>`;
+        if (cfg.model && models.includes(cfg.model)) repoAiModel.value = cfg.model;
+        repoAiNote.textContent = `Models from ${(cfg.provider || "configured provider")} · saved default preselected.`;
+      } catch (e) {
+        repoAiModel.innerHTML = `<option value="">could not load models</option>`;
+        repoAiNote.textContent = `Model list failed: ${e.message}`;
       }
     });
 

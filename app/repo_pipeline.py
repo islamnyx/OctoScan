@@ -55,8 +55,9 @@ def _ai_configured() -> bool:
     return bool(cfg.get("base_url") and cfg.get("model"))
 
 
-def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
-    """Fresh run (queued) or resume (paused)."""
+def run_repo_scan(scan_id: str, *, run_ai: bool = False, ai_model: str | None = None) -> object:
+    """Fresh run (queued) or resume (paused). ai_model overrides the
+    saved config's model for this scan's AI calls only."""
     job = load_repo_job(scan_id)
     if job is None:
         raise RuntimeError(f"repo scan {scan_id} not found")
@@ -140,6 +141,7 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
                     review = ai_review.review_codebase(
                         workdir, job.repo_url, check=_stopped,
                         report=lambda m: activity.current(job.id, m),
+                        model=ai_model,
                     )
                     job.scanners_run.append("ai-code-review")
                     findings.extend(review)
@@ -156,6 +158,8 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
                     return _pause(job, findings, errors)
                 try:
                     cfg = ai_layer.load_config()
+                    if ai_model:
+                        cfg["model"] = ai_model
                     if cfg.get("base_url") and cfg.get("model"):
                         activity.current(job.id, "AI: triaging all findings…")
                         job.ai = ai_layer.analyze_findings(job.repo_url, prioritize(findings), cfg=cfg)

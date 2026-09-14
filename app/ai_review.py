@@ -323,6 +323,7 @@ def review_codebase(
     repo_url: str = "",
     check: Callable[[], str | None] | None = None,
     report: Callable[[str], None] | None = None,
+    model: str | None = None,
 ) -> list[Finding]:
     """Phase 1 (nominate) + Phase 2 (batched review) as Findings.
 
@@ -330,7 +331,8 @@ def review_codebase(
     reviews them together with the scorer's picks in small batches so
     related files share one prompt. `check` (optional) is called between
     batches and returns "pause", "finish" or None. `report` (optional)
-    receives live progress lines for the status page.
+    receives live progress lines for the status page. `model` (optional)
+    overrides the saved config's model for this call.
     """
 
     def _report(msg: str) -> None:
@@ -341,6 +343,8 @@ def review_codebase(
                 pass
 
     cfg = ai_layer.load_config()
+    if model:
+        cfg["model"] = model
     if not (cfg.get("base_url") and cfg.get("model")):
         raise RuntimeError("AI base_url/model not configured")
     entries = _reviewable_entries(root)

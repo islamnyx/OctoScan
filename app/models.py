@@ -87,6 +87,9 @@ class RepoScanRequest(BaseModel):
     repo_url: str = Field(max_length=512)
     branch: str | None = Field(default=None, max_length=128)
     include_ai: bool = False
+    # Per-scan model override (dashboard's codebase-tab model picker).
+    # Falls back to the saved AI config model when omitted.
+    ai_model: str | None = Field(default=None, max_length=128)
 
 
 class AIAnalysis(BaseModel):
