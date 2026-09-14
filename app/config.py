@@ -72,13 +72,13 @@ class Settings(BaseSettings):
     # AI code review bounds: which/how much code the model reads.
     # 8 files/90k missed django.nV's SQLi (views.py never sampled);
     # 16 files/160k covers real app code while capping Groq costs.
-    ai_review_max_files: int = 16
+    ai_review_max_files: int = 20
     ai_review_max_bytes: int = 160_000
     ai_review_max_tokens: int = 500
     # Two-phase review (nominate from listing, then batched reading):
     # related files in one prompt give the model route->sink context.
     ai_review_batch_files: int = 3
-    ai_review_batch_chars: int = 60_000
+    ai_review_batch_chars: int = 36_000
 
 
 settings = Settings()

@@ -181,13 +181,30 @@ def analyze_findings(
         "prioritized_fixes (array of max 5 concrete steps), "
         "false_positive_notes (1-3 sentences)."
     )
-    text = chat_complete(
-        [
-            {"role": "system", "content": ANALYZE_SYSTEM},
-            {"role": "user", "content": user},
-        ],
-        cfg=cfg,
-    )
+    # Retry 429s (review phase drains free-tier OTPM budgets right before
+    # this call; the provider's 'try again in Xs' is honored, up to 60s).
+    text = None
+    import re as _re
+    import time as _time
+
+    for attempt in (1, 2, 3):
+        try:
+            text = chat_complete(
+                [
+                    {"role": "system", "content": ANALYZE_SYSTEM},
+                    {"role": "user", "content": user},
+                ],
+                cfg=cfg,
+                # Free tiers (Groq OTPM 1000) reject bigger asks with
+                # guaranteed 429.
+                max_tokens=min(settings.ai_max_tokens, 900),
+            )
+            break
+        except RuntimeError as exc:
+            if "429" not in str(exc) or attempt == 3:
+                raise
+            m = _re.search(r"try again in ([\d.]+)s", str(exc))
+            _time.sleep(min(float(m.group(1)) + 1.0 if m else 15.0, 60.0))
     summary, fixes, fp_notes = text.strip()[:4000], [], ""
     try:
         start = text.find("{")

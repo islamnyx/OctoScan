@@ -15,14 +15,47 @@ from app.repo import is_vendored, iter_repo_files
 from app.scanners.source_base import SourceScanner
 
 HEURISTICS: list[tuple[str, re.Pattern[str], Severity, str]] = [
-    ("SQL string concatenation",
-     re.compile(r"(SELECT|INSERT|UPDATE|DELETE).{0,40}\+\s*\w|f['\"].*(SELECT|WHERE)", re.I | re.S),
-     Severity.medium, "Possible SQL injection. Use parameterized queries."),
+    # SQL: keyword followed by concat/interpolation into the string.
+    # (Old pattern `f'.*SELECT'` matched plain JS strings -> jquery FPs.)
+    ("SQL injection via string building",
+     re.compile(
+         r"\b(SELECT|INSERT|UPDATE|DELETE)\b[^\"';]{0,80}[\"']\s*[.\+]|"
+         r"[\"'][^\"']*\b(SELECT|INSERT|UPDATE|DELETE)\b[^\"']*\$\w+|"
+         r"f[\"'][^\"']*\b(SELECT|INSERT|UPDATE|DELETE)\b",
+         re.I),
+     Severity.high, "SQL query built by concatenation/interpolation. Use parameterized queries."),
+    ("OS command injection",
+     re.compile(
+         r"(shell_exec|exec|system|passthru|popen|proc_open)\s*\([^)]*['\"][^)]*[.\+]|"
+         r"(shell_exec|exec|system|passthru|popen|proc_open)\s*\([^)]*\$_(GET|POST|REQUEST|COOKIE)|"
+         r"os\.system\s*\(|os\.popen\s*\(",
+         re.I),
+     Severity.high, "OS command built from variables. Use fixed argv lists / escapeshellarg."),
+    ("Dynamic file inclusion",
+     re.compile(r"\b(include|require)(_once)?\s*\(?\s*\$", re.I),
+     Severity.high, "File path from a variable (LFI/RFI). Allow-list include paths."),
+    ("Reflected XSS sink",
+     re.compile(
+         r"(echo|print)\s+[^;]*(\$_(GET|POST|REQUEST|COOKIE)|\$\w+\s*\.\s*\$_)|"
+         r"innerHTML\s*=|document\.write\s*\(",
+         re.I),
+     Severity.medium, "User input echoed/inserted into HTML without escaping."),
+    ("Open redirect",
+     re.compile(
+         r"header\s*\(\s*['\"]Location\s*:.*\$|window\.location(\.href)?\s*=|redirect\s*\(\s*(request\.|request\.GET)",
+         re.I),
+     Severity.medium, "Redirect target from user input. Validate against an allow-list."),
+    ("Unvalidated file upload",
+     re.compile(r"move_uploaded_file\s*\(", re.I),
+     Severity.high, "Uploaded file stored without type/extension validation. Restrict and rename."),
+    ("Insecure deserialization",
+     re.compile(r"\bunserialize\s*\(|pickle\.loads\s*\(|yaml\.load\s*\((?!.*Loader)|new\s+\w+\s*\(\s*\$_", re.I),
+     Severity.high, "Deserializing untrusted data enables object injection / RCE."),
     ("Hardcoded crypto bypass",
      re.compile(r"(verify\s*=\s*False|CERT_NONE|InsecureSkipVerify|TLSClientConfig\s*:\s*&tls\.Config\{\})"),
      Severity.high, "TLS verification disabled. Re-enable and pin CA."),
     ("Shell injection sink",
-     re.compile(r"(os\.system|subprocess\.(call|Popen|run)\s*\(.*shell\s*=\s*True|child_process\.exec)"),
+     re.compile(r"(subprocess\.(call|Popen|run)\s*\(.*shell\s*=\s*True|child_process\.exec)"),
      Severity.medium, "Shell execution with possible user input. Avoid shell=True."),
     ("Weak crypto",
      re.compile(r"\b(MD5|SHA1|DES|RC4)\b"),

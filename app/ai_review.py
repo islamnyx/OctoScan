@@ -50,6 +50,31 @@ SKIP_FILE_RE = re.compile(
     re.I,
 )
 
+# Sink scan (deterministic pre-pass): files containing dangerous call
+# patterns get a nomination boost regardless of name/size. This is what
+# pulls "source/low.php"-style files (600B, anonymous name) into review —
+# on DVWA every classic vuln (exec/fi/sqli/upload) lives in exactly such
+# files and both the scorer and the model's nomination skipped them.
+SINK_CALL_RE = re.compile(
+    r"(shell_exec|exec\s*\(|system\s*\(|passthru|popen|proc_open|"
+    r"\binclude\b|\brequire\b|move_uploaded_file|"
+    r"header\s*\(\s*['\"]Location|eval\s*\(|assert\s*\(|unserialize\s*\(|"
+    r"pickle\.loads|yaml\.load\b|"
+    r"cursor\.execute|executemany|os\.system|subprocess\.(call|run|Popen)|"
+    r"mysqli_query|mysql_query|pg_query|->query\s*\(|sqlite_query)",
+    re.I,
+)
+USER_INPUT_RE = re.compile(
+    r"(\$_(GET|POST|REQUEST|COOKIE|SERVER)|request\.(GET|POST|args|form|data|json|values)|"
+    r"params\[|query_params|os\.environ)",
+    re.I,
+)
+XSS_SINK_RE = re.compile(
+    r"(echo\s+[^;]*\$_(GET|POST|REQUEST|COOKIE)|print\s+[^;]*\$_(GET|POST|REQUEST)|"
+    r"innerHTML\s*=|document\.write\s*\(|dangerouslySetInnerHTML)",
+    re.I,
+)
+
 SEV_MAP = {
     "critical": Severity.critical,
     "high": Severity.high,
@@ -159,6 +184,25 @@ def _reviewable_entries(root: Path) -> list[tuple[Path, int, str]]:
     return entries
 
 
+def _sink_count(path: Path) -> int:
+    """Dangerous-sink occurrences in a file (bounded read)."""
+    try:
+        if path.stat().st_size > 200_000:
+            return 0
+        text = path.read_text(errors="ignore")
+    except Exception:
+        return 0
+    n = 0
+    for line in text.splitlines():
+        if SINK_CALL_RE.search(line):
+            n += 1
+        elif XSS_SINK_RE.search(line):
+            n += 1
+        if n >= 10:
+            break
+    return n
+
+
 def _score(path: Path, root: Path, size: int) -> int | None:
     rel = str(path.relative_to(root))
     if SKIP_FILE_RE.search(path.name):
@@ -177,10 +221,14 @@ def _score(path: Path, root: Path, size: int) -> int | None:
         score += 1
     if size > 100_000:
         score -= 3
-    # Tiny files (init stubs, manage.py) burn an AI call for ~0 signal;
-    # prefer meaty files when scores tie. Views/logic files are exactly
-    # where real vulns live (django.nV's SQLi is a 28KB views.py).
-    if size < 800:
+    sinks = _sink_count(path)
+    if sinks:
+        # Sink evidence beats naming heuristics: DVWA's exec/sqli/upload
+        # vulns live in 600B files named low.php that nothing else ranks.
+        score += 3 + min(sinks, 5)
+        if size < 800:
+            score += 2  # waive the tiny-file penalty when sinks exist
+    elif size < 800:
         score -= 2
     return score
 
@@ -229,7 +277,13 @@ def nominate_files(
     back to [] on any failure (scorer picks still cover review)."""
     if not entries:
         return []
-    lines = [f"{rel} ({size}b)" for _p, size, rel in entries[:400]]
+    # Rank the listing hot-first: an alphabetical listing truncated at
+    # the cap hid DVWA's vulnerabilities/* tree entirely (it sorts last).
+    ranked = sorted(
+        entries,
+        key=lambda e: -(_score(e[0], root, e[1]) or 0),
+    )
+    lines = [f"{rel} ({size}b)" for _p, size, rel in ranked[:600]]
     user = (
         f"Repository file listing ({len(lines)} source files):\n"
         + "\n".join(lines)
@@ -340,7 +394,8 @@ def review_codebase(
     if cur:
         batches.append(cur)
 
-    for batch in batches:
+    def process_batch(batch: list[str], depth: int = 0) -> None:
+        nonlocal total_chars
         if check is not None:
             try:
                 stop = check()
@@ -348,7 +403,7 @@ def review_codebase(
                 stop = None
             if stop in ("pause", "finish"):
                 manifest.append(f"stopped early by user ({stop}) — remaining batches skipped")
-                break
+                return
         user_parts: list[str] = []
         batch_chars_actual = 0
         for rel in batch:
@@ -359,7 +414,7 @@ def review_codebase(
             batch_chars_actual += len(code)
             user_parts.append(f"File: {rel}\n```\n{code}\n```")
         if not user_parts:
-            continue
+            return
         user = (
             "\n\n".join(user_parts)
             + "\n\nList all vulnerabilities found across these files as a JSON array. "
@@ -377,7 +432,14 @@ def review_codebase(
             )
             dt = time.time() - t0
             total_chars += batch_chars_actual
-        except Exception as exc:
+        except RuntimeError as exc:
+            # Provider request-size cap (413): split the batch and retry
+            # each half so one fat file never voids its batchmates.
+            if ("413" in str(exc) or "too large" in str(exc).lower()) and len(batch) > 1 and depth < 4:
+                mid = len(batch) // 2
+                process_batch(batch[:mid], depth + 1)
+                process_batch(batch[mid:], depth + 1)
+                return
             for rel in batch:
                 manifest.append(f"{rel}: FAILED ({str(exc)[:120]})")
                 findings.append(
@@ -389,7 +451,7 @@ def review_codebase(
                         location=f"{repo_url}#{rel}" if repo_url else rel,
                     )
                 )
-            continue
+            return
         items = _parse_review_reply(reply)
         batch_rels = {_norm_rel(rel): rel for rel in batch}
         per_file_counts = {rel: 0 for rel in batch}
@@ -431,6 +493,9 @@ def review_codebase(
         # Pace batches: back-to-back big calls blow free-tier token/min
         # windows and the next batch eats 429s.
         time.sleep(3)
+
+    for batch in batches:
+        process_batch(batch)
         if len(findings) >= 50:
             break
     vuln_count = len([f for f in findings if f.scanner == "ai-code-review" and not f.title.startswith("AI review failed")])
