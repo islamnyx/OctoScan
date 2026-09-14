@@ -21,6 +21,15 @@ class BaseScanner(ABC):
         # as Severity.info findings so counts() only reflects real vulns.
         self.coverage: dict[str, Any] = {}
 
+    def _activity(self, message: str) -> None:
+        """Live progress for the status page (workdir name = scan id)."""
+        try:
+            from app import activity
+
+            activity.current(self.workdir.name, f"{self.name}: {message}")
+        except Exception:
+            pass
+
     @abstractmethod
     def run(self) -> list[Finding]:
         raise NotImplementedError

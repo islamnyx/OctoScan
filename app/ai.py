@@ -144,6 +144,46 @@ def test_connection(cfg: dict[str, str] | None = None) -> dict[str, Any]:
     return {"ok": True, "reply": out.strip()[:200]}
 
 
+def list_models(cfg: dict[str, str] | None = None) -> dict[str, Any]:
+    """Fetch the provider's model list (OpenAI-compatible GET /models).
+
+    Works for Groq/OpenAI/OpenRouter/Together/Ollama/LM Studio. Used by
+    the dashboard's model picker so users never type model ids by hand.
+    """
+    cfg = cfg or load_config()
+    base = (cfg.get("base_url") or "").strip().rstrip("/")
+    if not base:
+        raise RuntimeError("AI base_url not configured")
+    url = base + "/models"
+    headers = {}
+    if cfg.get("api_key"):
+        headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    try:
+        r = httpx.get(url, headers=headers, timeout=15)
+    except Exception as exc:
+        raise RuntimeError(f"model list unreachable: {exc}")
+    if r.status_code >= 400:
+        raise RuntimeError(f"model list failed {r.status_code}: {r.text[:200]}")
+    try:
+        data = r.json()
+    except Exception as exc:
+        raise RuntimeError(f"model list bad response: {exc}")
+    items = data.get("data") if isinstance(data, dict) else None
+    if items is None and isinstance(data, dict):
+        items = data.get("models")
+    if items is None and isinstance(data, list):
+        items = data
+    ids: list[str] = []
+    for m in items or []:
+        if isinstance(m, dict):
+            mid = m.get("id") or m.get("name") or m.get("model")
+            if mid:
+                ids.append(str(mid))
+        elif isinstance(m, str):
+            ids.append(m)
+    return {"models": sorted(set(ids))}
+
+
 def _findings_digest(findings: list[Finding], limit: int = 40) -> str:
     lines = []
     for f in findings[:limit]:

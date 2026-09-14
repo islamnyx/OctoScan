@@ -199,6 +199,45 @@ def ai_test(req: AIConfigRequest | None = None, api_key: str = Depends(require_a
         raise HTTPException(502, str(exc)[:500])
 
 
+@app.post("/api/ai/models")
+def ai_models(req: AIConfigRequest | None = None, api_key: str = Depends(require_api_key)):
+    """Model list from the provider (OpenAI-compatible GET /models).
+
+    Accepts the form's current provider/base/key so the picker works
+    BEFORE the config is saved; falls back to the saved config.
+    """
+    from app import ai as ai_layer
+
+    cfg = ai_layer.load_config()
+    if req and (req.base_url or req.api_key):
+        cfg = {
+            "provider": req.provider or cfg.get("provider", ""),
+            "base_url": req.base_url or cfg.get("base_url", ""),
+            "api_key": req.api_key if req.api_key else cfg.get("api_key", ""),
+            "model": req.model or cfg.get("model", ""),
+        }
+    try:
+        return ai_layer.list_models(cfg)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:500])
+
+
+@app.get("/api/scans/{scan_id}/activity")
+def scan_activity(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import activity
+
+    scan_id = validate_scan_id(scan_id)
+    return activity.feed(scan_id)
+
+
+@app.get("/api/repo-scans/{scan_id}/activity")
+def repo_scan_activity(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app import activity
+
+    scan_id = validate_scan_id(scan_id)
+    return activity.feed(scan_id)
+
+
 @app.post("/api/repo-scans", response_model=RepoScanJob)
 def create_repo_scan(req: RepoScanRequest, request: Request, api_key: str = Depends(require_api_key)):
     from app.repo import validate_branch, validate_repo_url

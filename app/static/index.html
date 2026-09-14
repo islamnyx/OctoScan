@@ -175,8 +175,9 @@
               <input id="ai-base" type="url" placeholder="https://api.openai.com/v1" />
             </div>
             <div class="field">
-              <label for="ai-model">Model</label>
-              <input id="ai-model" type="text" placeholder="e.g. gpt-4o-mini, llama3.1" />
+              <label for="ai-model">Model <button type="button" id="ai-models-reload" style="font:inherit;font-size:11px;border:0;background:none;color:var(--accent);cursor:pointer;padding:0;">↻ reload</button></label>
+              <select id="ai-model"><option value="">— save a key, then reload —</option><option value="__custom__">Custom model…</option></select>
+              <input id="ai-model-custom" type="text" placeholder="model id" style="display:none;margin-top:6px;" />
             </div>
             <div class="field">
               <label for="ai-key">API key</label>
@@ -348,6 +349,7 @@
     const aiProvider = document.getElementById("ai-provider");
     const aiBase = document.getElementById("ai-base");
     const aiModel = document.getElementById("ai-model");
+    const aiModelCustom = document.getElementById("ai-model-custom");
     const aiKey = document.getElementById("ai-key");
     const aiStatus = document.getElementById("ai-status");
     const PRESETS = {
@@ -359,30 +361,81 @@
       lmstudio: "http://localhost:1234/v1",
       custom: ""
     };
+
+    function currentModelValue() {
+      return aiModel.value === "__custom__" ? aiModelCustom.value.trim() : aiModel.value;
+    }
+    function selectModel(id) {
+      if (!id) { aiModel.value = ""; aiModelCustom.style.display = "none"; return; }
+      const has = [...aiModel.options].some(o => o.value === id);
+      if (has) { aiModel.value = id; aiModelCustom.style.display = "none"; }
+      else { aiModel.value = "__custom__"; aiModelCustom.style.display = ""; aiModelCustom.value = id; }
+    }
+    async function loadModels() {
+      const base = aiBase.value.trim();
+      if (!base) { aiStatus.textContent = "Set a base URL to load its models."; aiStatus.style.color = "var(--faint)"; return; }
+      const prev = currentModelValue();
+      aiModel.innerHTML = `<option value="">loading…</option>`;
+      try {
+        const res = await fetch("/api/ai/models", {
+          method: "POST", headers: apiHeaders(),
+          body: JSON.stringify({ provider: aiProvider.value, base_url: base, api_key: aiKey.value })
+        });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 160));
+        const data = await res.json();
+        const models = data.models || [];
+        aiModel.innerHTML = models.length
+          ? models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("")
+            + `<option value="__custom__">Custom model…</option>`
+          : `<option value="">no models returned</option><option value="__custom__">Custom model…</option>`;
+        selectModel(prev);
+        aiStatus.textContent = `Loaded ${models.length} model(s) from ${base.replace(/^https?:\/\//, "").replace(/\/v\d+$/, "")}.`;
+        aiStatus.style.color = "var(--ok)";
+      } catch (e) {
+        aiModel.innerHTML = `<option value="">could not load models</option><option value="__custom__">Custom model…</option>`;
+        selectModel(prev);
+        aiStatus.textContent = `Model list failed: ${e.message}`;
+        aiStatus.style.color = "var(--err)";
+      }
+      aiStatus.style.fontSize = "12.5px";
+    }
     aiProvider.addEventListener("change", () => {
       const p = PRESETS[aiProvider.value];
       if (p !== undefined && (aiBase.value.trim() === "" || Object.values(PRESETS).includes(aiBase.value.trim()))) {
         aiBase.value = p;
       }
+      if (aiBase.value.trim()) loadModels();
     });
+    aiModel.addEventListener("change", () => {
+      aiModelCustom.style.display = aiModel.value === "__custom__" ? "" : "none";
+    });
+    document.getElementById("ai-models-reload").addEventListener("click", loadModels);
+    aiBase.addEventListener("change", () => { if (aiBase.value.trim()) loadModels(); });
+    aiKey.addEventListener("change", () => { if (aiBase.value.trim()) loadModels(); });
+
     async function loadAI() {
       const res = await fetch("/api/ai/config", { headers: apiHeaders() });
       if (!res.ok) return;
       const c = await res.json();
       aiProvider.value = c.provider || "";
       aiBase.value = c.base_url || "";
-      aiModel.value = c.model || "";
       aiStatus.textContent = c.configured
-        ? `Connected: ${(c.provider || "") + " " + (c.model || "")}${c.has_key ? " · key saved" : " · no key"}`
+        ? `Connected: ${(c.provider || "")} · key ${c.has_key ? "saved" : "missing"}`
         : "Not configured yet.";
       aiStatus.style.color = c.configured ? "var(--ok)" : "var(--faint)";
       aiStatus.style.fontSize = "12.5px";
+      if (c.base_url) {
+        await loadModels();
+        selectModel(c.model || "");
+      }
     }
     document.getElementById("ai-save").addEventListener("click", async () => {
+      const model = currentModelValue();
+      if (!model) { aiStatus.textContent = "Pick a model first (or choose Custom model…)."; aiStatus.style.color = "var(--err)"; return; }
       aiStatus.textContent = "Saving…";
       const res = await fetch("/api/ai/config", {
         method: "PUT", headers: apiHeaders(),
-        body: JSON.stringify({ provider: aiProvider.value, base_url: aiBase.value.trim(), api_key: aiKey.value, model: aiModel.value.trim() })
+        body: JSON.stringify({ provider: aiProvider.value, base_url: aiBase.value.trim(), api_key: aiKey.value, model })
       });
       if (!res.ok) { aiStatus.textContent = `Save failed: ${(await res.text()).slice(0, 150)}`; return; }
       aiKey.value = "";

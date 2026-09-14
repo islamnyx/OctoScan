@@ -52,6 +52,15 @@
     .btn.danger:hover { background: var(--err-bg); }
     .note { font-size: 12.5px; color: var(--faint); margin: 14px 0 0; }
     .errorline { font-size: 13px; color: var(--err); background: var(--err-bg); border: 1px solid #f3c2bd; border-radius: 8px; padding: 9px 13px; margin-top: 14px; word-break: break-word; }
+    .activity { margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+    .activity h3 { margin: 0; padding: 9px 13px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 8px; }
+    .nowline { padding: 9px 13px; font-size: 13px; color: #14489b; background: var(--accent-soft); border-bottom: 1px solid var(--border); font-weight: 600; }
+    .feed { max-height: 240px; overflow-y: auto; padding: 6px 0; }
+    .ev { display: flex; gap: 9px; padding: 3px 13px; font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+    .ev .t { color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ev.done { color: var(--ok); }
+    .ev.error { color: var(--err); }
+    .ev.current { color: #14489b; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -75,6 +84,11 @@
       <div class="staterow"><span class="st queued" id="state">…</span><span class="elapsed" id="elapsed"></span></div>
       <div class="progress"><div class="bar"><div class="fill" id="fill" style="width:4%;"></div></div></div>
       <p class="stepline" id="steps"></p>
+      <div class="activity" id="activity" style="display:none;">
+        <h3><span class="spinner" id="act-spinner" style="display:none;"></span>Live activity</h3>
+        <div class="nowline" id="nowline" style="display:none;"></div>
+        <div class="feed" id="feed"></div>
+      </div>
       <div id="errbox"></div>
       <div class="controls">
         <button class="btn secondary" id="btn-pause" type="button" style="display:none;">Pause</button>
@@ -144,6 +158,39 @@
     btnFinish.addEventListener("click", () => control("finish", btnFinish));
 
     let done = false;
+    const activityEl = document.getElementById("activity");
+    const nowlineEl = document.getElementById("nowline");
+    const feedEl = document.getElementById("feed");
+    const actSpinner = document.getElementById("act-spinner");
+    let seenEvents = 0;
+
+    async function tickActivity() {
+      try {
+        const res = await fetch(apiBase + "/activity", { headers });
+        if (!res.ok) { activityEl.style.display = "none"; return; }
+        const data = await res.json();
+        const events = data.events || [];
+        if (!events.length && !data.current) { activityEl.style.display = "none"; return; }
+        activityEl.style.display = "";
+        const running = !done;
+        actSpinner.style.display = running ? "" : "none";
+        if (data.current) {
+          nowlineEl.style.display = "";
+          nowlineEl.textContent = "▶ " + data.current;
+        } else {
+          nowlineEl.style.display = "none";
+        }
+        if (events.length !== seenEvents) {
+          seenEvents = events.length;
+          feedEl.innerHTML = events.slice(-40).map(ev => {
+            const t = new Date(ev.ts * 1000).toLocaleTimeString();
+            return `<div class="ev ${esc(ev.kind)}"><span class="t">${t}</span><span>${esc(ev.msg)}</span></div>`;
+          }).join("");
+          feedEl.scrollTop = feedEl.scrollHeight;
+        }
+      } catch (e) { /* activity is best-effort */ }
+    }
+
     async function tick() {
       let res;
       try {
@@ -198,12 +245,16 @@
         done = true;
         clearInterval(poll);
         clearInterval(clock);
+        clearInterval(actPoll);
+        tickActivity();
         noteEl.textContent = "Finished — opening the result page…";
         setTimeout(() => { location.href = resultUrl; }, 1600);
       }
     }
     const poll = setInterval(tick, 2500);
+    const actPoll = setInterval(tickActivity, 2500);
     tick();
+    tickActivity();
   </script>
 </body>
 </html>

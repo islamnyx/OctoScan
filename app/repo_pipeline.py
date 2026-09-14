@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable
 
-from app import ai as ai_layer
+from app import activity, ai as ai_layer
 from app import ai_review
 from app import control
 from app.models import Finding, RepoScanJob, ScanStatus
@@ -72,6 +72,8 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
     findings: list[Finding] = list(job.findings)
     prior_error = job.error
     errors: list[str] = []
+    activity.clear(job.id)
+    activity.log(job.id, f"repo scan started: {job.repo_url}")
 
     def _stopped() -> str | None:
         flags = control.read(job.id, "repo")
@@ -84,6 +86,7 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
     # Clone once — skip on resume (interrupted clones re-clone safely).
     if job.files_scanned == 0 and "gitleaks" not in job.scanners_run and "semgrep" not in job.scanners_run:
         try:
+            activity.current(job.id, "cloning repository (shallow)…")
             clone_repo(job.repo_url, workdir, job.branch)
         except Exception as exc:
             job.status = ScanStatus.failed
@@ -93,6 +96,7 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
             return job
         try:
             job.files_scanned = len(iter_repo_files(workdir))
+            activity.log(job.id, f"cloned — {job.files_scanned} files indexed", kind="done")
         except Exception:
             job.files_scanned = 0
         save_repo_job(job)
@@ -104,13 +108,16 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
             return finalize_repo_job(job, findings, errors, early=True)
         if stop == "pause":
             return _pause(job, findings, errors)
+        activity.current(job.id, f"{cls.name}: scanning {job.files_scanned} file(s)…")
         try:
             scanner = cls(workdir, job.repo_url)
             result = scanner.run()
             job.scanners_run.append(scanner.name)
             findings.extend(result)
+            activity.log(job.id, f"{cls.name}: finished — {len(result)} finding(s)", kind="done")
         except Exception as exc:
             errors.append(f"{cls.name}: {exc}")
+            activity.log(job.id, f"{cls.name}: failed — {str(exc)[:200]}", kind="error")
         job.findings = prioritize(findings)
         save_repo_job(job)
 
@@ -131,7 +138,8 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
                 findings = [f for f in findings if f.scanner != "ai-code-review"]
                 try:
                     review = ai_review.review_codebase(
-                        workdir, job.repo_url, check=_stopped
+                        workdir, job.repo_url, check=_stopped,
+                        report=lambda m: activity.current(job.id, m),
                     )
                     job.scanners_run.append("ai-code-review")
                     findings.extend(review)
@@ -139,6 +147,7 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
                     save_repo_job(job)
                 except Exception as exc:
                     errors.append(f"ai-code-review: {exc}")
+                    activity.log(job.id, f"ai-code-review: failed — {str(exc)[:200]}", kind="error")
                 # 2. AI triages everything (static + its own review findings).
                 stop = _stopped()
                 if stop == "finish":
@@ -148,11 +157,14 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False) -> object:
                 try:
                     cfg = ai_layer.load_config()
                     if cfg.get("base_url") and cfg.get("model"):
+                        activity.current(job.id, "AI: triaging all findings…")
                         job.ai = ai_layer.analyze_findings(job.repo_url, prioritize(findings), cfg=cfg)
                         if "ai" not in job.scanners_run:
                             job.scanners_run.append("ai")
+                        activity.log(job.id, "AI triage finished", kind="done")
                 except Exception as exc:
                     errors.append(f"ai: {exc}")
+                    activity.log(job.id, f"AI triage failed — {str(exc)[:200]}", kind="error")
 
     if prior_error and prior_error not in errors:
         errors = [prior_error] + errors

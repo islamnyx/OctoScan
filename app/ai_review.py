@@ -322,14 +322,24 @@ def review_codebase(
     root: Path,
     repo_url: str = "",
     check: Callable[[], str | None] | None = None,
+    report: Callable[[str], None] | None = None,
 ) -> list[Finding]:
     """Phase 1 (nominate) + Phase 2 (batched review) as Findings.
 
     The model first shortlists suspicious files from the listing, then
     reviews them together with the scorer's picks in small batches so
     related files share one prompt. `check` (optional) is called between
-    batches and returns "pause", "finish" or None.
+    batches and returns "pause", "finish" or None. `report` (optional)
+    receives live progress lines for the status page.
     """
+
+    def _report(msg: str) -> None:
+        if report is not None:
+            try:
+                report(msg)
+            except Exception:
+                pass
+
     cfg = ai_layer.load_config()
     if not (cfg.get("base_url") and cfg.get("model")):
         raise RuntimeError("AI base_url/model not configured")
@@ -351,6 +361,7 @@ def review_codebase(
 
     # Phase 1: AI nomination. Nominated files lead the queue; scorer
     # picks fill the rest (deduped, same budget).
+    _report("AI: ranking the file listing to pick review targets…")
     nominated = nominate_files(root, entries, cfg, limit=max_files)
     by_rel = {rel: (p, size) for p, size, rel in entries}
     queued: list[str] = list(nominated)
@@ -404,6 +415,10 @@ def review_codebase(
             if stop in ("pause", "finish"):
                 manifest.append(f"stopped early by user ({stop}) — remaining batches skipped")
                 return
+        _report(
+            f"AI: reading {batch[0]}"
+            + (f" (+{len(batch) - 1} more file(s))" if len(batch) > 1 else "")
+        )
         user_parts: list[str] = []
         batch_chars_actual = 0
         for rel in batch:
@@ -455,6 +470,7 @@ def review_codebase(
         items = _parse_review_reply(reply)
         batch_rels = {_norm_rel(rel): rel for rel in batch}
         per_file_counts = {rel: 0 for rel in batch}
+        _report(f"AI: batch done — {len(items)} candidate finding(s)")
         for item in items[:30]:
             item_file = str(item.get("file") or "")
             rel = batch_rels.get(_norm_rel(item_file)) or batch[0]

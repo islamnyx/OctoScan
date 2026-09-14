@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-from app import control
+from app import activity, control
 from app.config import settings
 from app.models import Finding, ScanJob, ScanStatus
 from app.normalize import prioritize
@@ -79,11 +79,15 @@ def run_scan(scan_id: str) -> ScanJob:
     findings: list[Finding] = list(job.findings)
     prior_error = job.error
     errors: list[str] = []
+    activity.clear(job.id)
+    activity.log(job.id, f"scan started against {job.target_url}")
 
     def _run(scanner_cls):
+        activity.current(job.id, f"{scanner_cls.name}: scanning {job.target_url}…")
         scanner = scanner_cls(job.target_url, workdir)
         findings_result = scanner.run()
         coverage_result = dict(getattr(scanner, "coverage", None) or {})
+        activity.log(job.id, f"{scanner_cls.name}: finished — {len(findings_result)} finding(s)", kind="done")
         return scanner.name, findings_result, coverage_result
 
     # Lower CPU priority so the desktop stays responsive on laptops.
@@ -121,6 +125,7 @@ def run_scan(scan_id: str) -> ScanJob:
                     job.coverage[scanner_name] = coverage
             except Exception as exc:
                 errors.append(f"{cls.name}: {exc}")
+                activity.log(job.id, f"{cls.name}: failed — {str(exc)[:200]}", kind="error")
             job.findings = prioritize(findings)
             save_job(job)
             time.sleep(2)  # let CPU/thermals settle between heavy scanners
@@ -159,6 +164,7 @@ def run_scan(scan_id: str) -> ScanJob:
         if stop == "pause":
             return _pause(job, findings, errors)
     try:
+        activity.current(job.id, "sensitive-files: probing discovered URLs…")
         sensitive = flag_sensitive_files(job.target_url, findings)
         # Active probes: high-value paths no crawler reliably discovers
         # (/.git/HEAD, /.git/config, /.env, /.DS_Store). Runs even when
@@ -174,4 +180,5 @@ def run_scan(scan_id: str) -> ScanJob:
         errors.append(f"sensitive-files: {exc}")
     if prior_error and prior_error not in errors:
         errors = [prior_error] + errors
+    activity.log(job.id, f"scan finished", kind="done")
     return finalize_scan(job, findings, errors)
