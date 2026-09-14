@@ -1,9 +1,14 @@
 """AI code review (Phase 2): the model reads selected source files,
 finds vulnerabilities itself, then triage summarizes everything.
 
-Bounded by design: a scorer picks the most security-relevant files,
-per-file/total byte caps keep prompts inside context windows and
-costs predictable. Static scanners still run first — AI complements
+Two-phase design (2026-09-14): Phase 1 shows the model the full file
+listing and it nominates the files most likely to hold vulns; Phase 2
+reviews those files TOGETHER with the heuristic scorer's picks in small
+batches — related files in one prompt (views+urls+models) give the model
+the context it needs to connect a sink to a route.
+
+Bounded by design: file/byte caps keep prompts inside context windows
+and costs predictable. Static scanners still run first — AI complements
 them (logic flaws, auth gaps, insecure patterns they miss).
 
 Cloud providers receive code excerpts. Local providers
@@ -21,7 +26,7 @@ from pathlib import Path
 from app import ai as ai_layer
 from app.config import settings
 from app.models import Finding, Severity
-from app.repo import iter_repo_files
+from app.repo import is_vendored, iter_repo_files
 
 REVIEW_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".svelte",
@@ -32,7 +37,9 @@ REVIEW_EXTS = {
 HOT_PATH_RE = re.compile(
     r"(auth|login|session|secur|config|setting|valid|sanit|guard|verify|"
     r"passwd|password|crypt|token|secret|api|route|"
-    r"control|middle|admin|upload|db|sql|pay|checkout|user|account|"
+    r"view|controller|handler|endpoint|servlet|resource|form|serial|"
+    r"exec|eval|query|search|upload|shell|cmd|command|"
+    r"control|middle|admin|db|sql|pay|checkout|user|account|"
     r"permission|role|oauth|jwt|key|credential|private)",
     re.I,
 )
@@ -51,68 +58,35 @@ SEV_MAP = {
     "info": Severity.info,
 }
 
+TRIAGE_SYSTEM = (
+    "You are a senior application-security auditor triaging a repository. "
+    "You get a listing of source files (path + size). Nominate the files "
+    "most likely to contain REAL vulnerabilities: injection (SQL/cmd), "
+    "broken auth or access control, crypto flaws, SSRF, path traversal, "
+    "XSS sinks, insecure deserialization, hardcoded secrets. "
+    "Skip tests, migrations, docs, configs without logic, vendored code. "
+    "Reply with a JSON array of paths ONLY, most suspicious first, "
+    'max {limit} entries: ["src/app/views.py", "src/auth.py"]. '
+    "Empty array [] if nothing looks reviewable."
+)
+
 REVIEW_SYSTEM = (
-    "You are a senior application-security code reviewer. Read the code, "
-    "find real vulnerabilities (injection, auth bypass, broken access "
-    "control, secrets, crypto flaws, SSRF, path traversal, XSS, insecure "
-    "deserialization, race conditions, missing validation). Ignore style. "
+    "You are a senior application-security code reviewer. You are given "
+    "one or more related source files. Read the code, find real "
+    "vulnerabilities (injection, auth bypass, broken access control, "
+    "secrets, crypto flaws, SSRF, path traversal, XSS, insecure "
+    "deserialization, race conditions, missing validation). Cross-reference "
+    "files (routes -> handlers -> models) before deciding. Ignore style. "
     "Do not invent issues that the code does not show. "
-    "Reply with a JSON array only: "
-    '[{"title": "...", "severity": "critical|high|medium|low|info", '
-    '"line": 12, "description": "...", "fix": "..."}]. '
+    "Reply with a JSON array only, each item: "
+    '{"file": "<path as given>", "title": "...", "severity": '
+    '"critical|high|medium|low|info", "line": 12, "description": "...", '
+    '"fix": "..."}. '
     "Empty array [] when nothing is wrong."
 )
 
 
-def _score(path: Path, root: Path, size: int) -> int | None:
-    rel = str(path.relative_to(root))
-    if SKIP_FILE_RE.search(path.name):
-        return None
-    if path.suffix.lower() not in REVIEW_EXTS:
-        return None
-    score = 0
-    if HOT_PATH_RE.search(rel):
-        score += 3
-    if COLD_RE.search(rel):
-        score -= 2
-    if 500 <= size <= 30_000:
-        score += 1
-    if size > 100_000:
-        score -= 3
-    return score
-
-
-def pick_review_files(root: Path) -> list[tuple[Path, int]]:
-    max_files = max(1, settings.ai_review_max_files)
-    max_bytes = max(10_000, settings.ai_review_max_bytes)
-    scored: list[tuple[int, int, Path]] = []
-    for p in iter_repo_files(root):
-        try:
-            size = p.stat().st_size
-        except Exception:
-            continue
-        s = _score(p, root, size)
-        if s is None:
-            continue
-        scored.append((s, -size, p))
-    scored.sort(reverse=True)
-    picked: list[tuple[Path, int]] = []
-    total = 0
-    for _, _, p in scored[: max_files * 3]:
-        if len(picked) >= max_files:
-            break
-        try:
-            size = p.stat().st_size
-        except Exception:
-            continue
-        if total + min(size, 15_000) > max_bytes and picked:
-            break
-        picked.append((p, size))
-        total += min(size, 15_000)
-    return picked
-
-
-def _excerpt(path: Path, per_file_cap: int = 15_000) -> str:
+def _excerpt(path: Path, per_file_cap: int = 20_000) -> str:
     try:
         text = path.read_text(errors="ignore")
     except Exception:
@@ -136,31 +110,158 @@ def _parse_review_reply(reply: str) -> list[dict]:
     return [i for i in items if isinstance(i, dict)]
 
 
-def _chat_once(messages: list[dict[str, str]], cfg: dict[str, str]) -> str:
+def _chat_once(messages: list[dict[str, str]], cfg: dict[str, str], max_tokens: int) -> str:
     return ai_layer.chat_complete(
         messages,
         cfg=cfg,
-        max_tokens=settings.ai_review_max_tokens,
+        max_tokens=max_tokens,
         temperature=0.1,
     )
 
 
-def _chat_with_retry(messages: list[dict[str, str]], cfg: dict[str, str]) -> tuple[str, float, int]:
-    """One retry on rate-limit (429), honoring the server's 'try again in Xs'.
+def _chat_with_retry(
+    messages: list[dict[str, str]], cfg: dict[str, str], max_tokens: int
+) -> tuple[str, float, int]:
+    """Retries on rate-limit (429), honoring the server's 'try again in Xs'.
 
-    Free tiers (e.g. Groq 1000 output-tokens/min) 429 constantly on
-    back-to-back calls — without this, half the files silently fail.
-    Returns (reply, seconds_waited, attempts). Raises on final failure.
+    Free tiers (e.g. Groq token/min budget) 429 on back-to-back calls;
+    token-budget windows can demand 60s+ waits, so allow two retries and
+    honor wait times up to 60s. Returns (reply, seconds_waited, attempts).
+    Raises on final failure.
     """
+    waited_total = 0.0
+    for attempt in (1, 2, 3):
+        try:
+            return _chat_once(messages, cfg, max_tokens), waited_total, attempt
+        except RuntimeError as exc:
+            if "429" not in str(exc) or attempt == 3:
+                raise
+            m = re.search(r"try again in ([\d.]+)s", str(exc))
+            wait = min(float(m.group(1)) + 1.0 if m else 15.0, 60.0)
+            time.sleep(wait)
+            waited_total += wait
+
+
+def _reviewable_entries(root: Path) -> list[tuple[Path, int, str]]:
+    entries: list[tuple[Path, int, str]] = []
+    for p in iter_repo_files(root):
+        if SKIP_FILE_RE.search(p.name):
+            continue
+        if is_vendored(p, root):
+            continue
+        if p.suffix.lower() not in REVIEW_EXTS:
+            continue
+        try:
+            size = p.stat().st_size
+        except Exception:
+            continue
+        entries.append((p, size, str(p.relative_to(root))))
+    return entries
+
+
+def _score(path: Path, root: Path, size: int) -> int | None:
+    rel = str(path.relative_to(root))
+    if SKIP_FILE_RE.search(path.name):
+        return None
+    if is_vendored(path, root):
+        # migrations/fixtures/static: never vuln sinks, never spend slots
+        return None
+    if path.suffix.lower() not in REVIEW_EXTS:
+        return None
+    score = 0
+    if HOT_PATH_RE.search(rel):
+        score += 3
+    if COLD_RE.search(rel):
+        score -= 2
+    if 500 <= size <= 30_000:
+        score += 1
+    if size > 100_000:
+        score -= 3
+    # Tiny files (init stubs, manage.py) burn an AI call for ~0 signal;
+    # prefer meaty files when scores tie. Views/logic files are exactly
+    # where real vulns live (django.nV's SQLi is a 28KB views.py).
+    if size < 800:
+        score -= 2
+    return score
+
+
+def pick_review_files(root: Path) -> list[tuple[Path, int]]:
+    max_files = max(1, settings.ai_review_max_files)
+    max_bytes = max(10_000, settings.ai_review_max_bytes)
+    scored: list[tuple[int, int, Path]] = []
+    for p in iter_repo_files(root):
+        try:
+            size = p.stat().st_size
+        except Exception:
+            continue
+        s = _score(p, root, size)
+        if s is None:
+            continue
+        scored.append((s, -size, p))
+    # score desc, then LARGEST first on ties: t[1] is -size, so ascending
+    # t[1] = descending size ((-3,-28000) < (-3,-570) -> big file first).
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    picked: list[tuple[Path, int]] = []
+    total = 0
+    for _, _, p in scored[: max_files * 3]:
+        if len(picked) >= max_files:
+            break
+        try:
+            size = p.stat().st_size
+        except Exception:
+            continue
+        if total + min(size, 15_000) > max_bytes and picked:
+            break
+        picked.append((p, size))
+        total += min(size, 15_000)
+    return picked
+
+
+def _norm_rel(rel: str) -> str:
+    return rel.replace("\\", "/").lstrip("./").lower()
+
+
+def nominate_files(
+    root: Path, entries: list[tuple[Path, int, str]], cfg: dict[str, str], limit: int
+) -> list[str]:
+    """Phase 1: the model sees the full file listing and nominates
+    suspicious files. Returns validated rel paths, best-first. Falls
+    back to [] on any failure (scorer picks still cover review)."""
+    if not entries:
+        return []
+    lines = [f"{rel} ({size}b)" for _p, size, rel in entries[:400]]
+    user = (
+        f"Repository file listing ({len(lines)} source files):\n"
+        + "\n".join(lines)
+        + f"\n\nNominate up to {limit} files most likely to contain vulnerabilities."
+    )
     try:
-        return _chat_once(messages, cfg), 0.0, 1
-    except RuntimeError as exc:
-        if "429" not in str(exc):
-            raise
-        m = re.search(r"try again in ([\d.]+)s", str(exc))
-        wait = min(float(m.group(1)) + 1.0 if m else 12.0, 30.0)
-        time.sleep(wait)
-        return _chat_once(messages, cfg), wait, 2
+        reply, _waited, _attempts = _chat_with_retry(
+            [
+                {"role": "system", "content": TRIAGE_SYSTEM.replace("{limit}", str(limit))},
+                {"role": "user", "content": user},
+            ],
+            cfg,
+            max_tokens=1000,
+        )
+    except Exception:
+        return []
+    known = {_norm_rel(rel): rel for _p, _s, rel in entries}
+    picked: list[str] = []
+    for item in _parse_review_reply(reply):
+        if not isinstance(item, str):
+            continue
+        key = _norm_rel(item)
+        # exact match first, then unique suffix match (model may prefix repo name)
+        rel = known.get(key)
+        if rel is None:
+            matches = [orig for k, orig in known.items() if k.endswith(key) or key.endswith(k)]
+            rel = matches[0] if len(matches) == 1 else None
+        if rel and rel not in picked:
+            picked.append(rel)
+        if len(picked) >= limit:
+            break
+    return picked
 
 
 def review_codebase(
@@ -168,16 +269,18 @@ def review_codebase(
     repo_url: str = "",
     check: Callable[[], str | None] | None = None,
 ) -> list[Finding]:
-    """Ask the configured model to read files and report vulns as Findings.
+    """Phase 1 (nominate) + Phase 2 (batched review) as Findings.
 
-    `check` (optional) is called between files and returns "pause",
-    "finish" or None — lets long reviews stop promptly on user request.
+    The model first shortlists suspicious files from the listing, then
+    reviews them together with the scorer's picks in small batches so
+    related files share one prompt. `check` (optional) is called between
+    batches and returns "pause", "finish" or None.
     """
     cfg = ai_layer.load_config()
     if not (cfg.get("base_url") and cfg.get("model")):
         raise RuntimeError("AI base_url/model not configured")
-    picked = pick_review_files(root)
-    if not picked:
+    entries = _reviewable_entries(root)
+    if not entries:
         return [
             Finding(
                 scanner="ai-code-review",
@@ -187,28 +290,80 @@ def review_codebase(
                 location=repo_url or str(root),
             )
         ]
-    findings: list[Finding] = []
-    # Manifest: proof of what the model actually read. Shown in the
-    # dashboard so "AI reviewed" is auditable, not a black box.
+    max_files = max(1, settings.ai_review_max_files)
+    max_bytes = max(10_000, settings.ai_review_max_bytes)
+    batch_files = max(1, settings.ai_review_batch_files)
+    batch_chars = max(20_000, settings.ai_review_batch_chars)
+
+    # Phase 1: AI nomination. Nominated files lead the queue; scorer
+    # picks fill the rest (deduped, same budget).
+    nominated = nominate_files(root, entries, cfg, limit=max_files)
+    by_rel = {rel: (p, size) for p, size, rel in entries}
+    queued: list[str] = list(nominated)
+    for p, size in pick_review_files(root):
+        rel = str(p.relative_to(root))
+        if rel not in queued:
+            queued.append(rel)
+        if len(queued) >= max_files:
+            break
+    # byte budget
+    final_rels: list[str] = []
+    total = 0
+    for rel in queued:
+        p, size = by_rel[rel]
+        cost = min(size, 20_000)
+        if total + cost > max_bytes and final_rels:
+            break
+        final_rels.append(rel)
+        total += cost
     manifest: list[str] = []
+    if nominated:
+        manifest.append(
+            f"pre-triage: model nominated {len(nominated)} file(s) from listing: "
+            + ", ".join(nominated[:8])
+        )
+    findings: list[Finding] = []
     total_chars = 0
-    for path, _size in picked:
+    seen_vulns: set[tuple[str, str, int]] = set()
+
+    # Phase 2: batched review — related files share one prompt.
+    batches: list[list[str]] = []
+    cur: list[str] = []
+    cur_chars = 0
+    for rel in final_rels:
+        cost = min(by_rel[rel][1], 20_000)
+        if cur and (len(cur) >= batch_files or cur_chars + cost > batch_chars):
+            batches.append(cur)
+            cur, cur_chars = [], 0
+        cur.append(rel)
+        cur_chars += cost
+    if cur:
+        batches.append(cur)
+
+    for batch in batches:
         if check is not None:
             try:
                 stop = check()
             except Exception:
                 stop = None
             if stop in ("pause", "finish"):
-                manifest.append(f"stopped early by user ({stop}) — remaining files skipped")
+                manifest.append(f"stopped early by user ({stop}) — remaining batches skipped")
                 break
-        rel = str(path.relative_to(root))
-        code = _excerpt(path)
-        if not code.strip():
-            manifest.append(f"{rel}: skipped (empty)")
+        user_parts: list[str] = []
+        batch_chars_actual = 0
+        for rel in batch:
+            code = _excerpt(by_rel[rel][0])
+            if not code.strip():
+                manifest.append(f"{rel}: skipped (empty)")
+                continue
+            batch_chars_actual += len(code)
+            user_parts.append(f"File: {rel}\n```\n{code}\n```")
+        if not user_parts:
             continue
         user = (
-            f"File: {rel}\n```\n{code}\n```\n"
-            "List vulnerabilities in this file as a JSON array only."
+            "\n\n".join(user_parts)
+            + "\n\nList all vulnerabilities found across these files as a JSON array. "
+            'Include the exact "file" path for each item.'
         )
         t0 = time.time()
         try:
@@ -218,33 +373,42 @@ def review_codebase(
                     {"role": "user", "content": user},
                 ],
                 cfg,
+                max_tokens=min(2000, settings.ai_review_max_tokens * len(batch)),
             )
             dt = time.time() - t0
-            total_chars += len(code)
+            total_chars += batch_chars_actual
         except Exception as exc:
-            manifest.append(f"{rel}: FAILED ({len(code)} chars sent, {str(exc)[:120]})")
-            findings.append(
-                Finding(
-                    scanner="ai-code-review",
-                    title=f"AI review failed for {rel}",
-                    severity=Severity.info,
-                    description=f"Model call failed: {exc}"[:400],
-                    location=f"{repo_url}#{rel}" if repo_url else rel,
+            for rel in batch:
+                manifest.append(f"{rel}: FAILED ({str(exc)[:120]})")
+                findings.append(
+                    Finding(
+                        scanner="ai-code-review",
+                        title=f"AI review failed for {rel}",
+                        severity=Severity.info,
+                        description=f"Model call failed: {exc}"[:400],
+                        location=f"{repo_url}#{rel}" if repo_url else rel,
+                    )
                 )
-            )
             continue
         items = _parse_review_reply(reply)
-        manifest.append(
-            f"{rel}: read {len(code)} chars in {dt:.1f}s "
-            f"(attempts={attempts}, waited={waited:.0f}s) -> {len(items)} vuln(s)"
-        )
-        for item in items[:10]:
+        batch_rels = {_norm_rel(rel): rel for rel in batch}
+        per_file_counts = {rel: 0 for rel in batch}
+        for item in items[:30]:
+            item_file = str(item.get("file") or "")
+            rel = batch_rels.get(_norm_rel(item_file)) or batch[0]
             title = str(item.get("title") or "AI finding").strip()[:160] or "AI finding"
-            sev = SEV_MAP.get(str(item.get("severity") or "").strip().lower(), Severity.medium)
+            # Models repeat the same vuln in slightly different words;
+            # dedupe on (file, lowercase title, line) across all batches.
             try:
-                line = int(item.get("line") or 0)
+                _line = int(item.get("line") or 0)
             except Exception:
-                line = 0
+                _line = 0
+            dedup_key = (rel, title.lower(), _line)
+            if dedup_key in seen_vulns:
+                continue
+            seen_vulns.add(dedup_key)
+            sev = SEV_MAP.get(str(item.get("severity") or "").strip().lower(), Severity.medium)
+            line = _line
             loc = f"{repo_url}#{rel}:{line}" if repo_url else (f"{rel}:{line}" if line else rel)
             findings.append(
                 Finding(
@@ -258,6 +422,15 @@ def review_codebase(
                     raw={"file": rel, "line": line or None, "ai": True},
                 )
             )
+            per_file_counts[rel] = per_file_counts.get(rel, 0) + 1
+        for rel in batch:
+            manifest.append(
+                f"{rel}: read {min(by_rel[rel][1], 20_000)} chars in {dt:.1f}s "
+                f"(attempts={attempts}, waited={waited:.0f}s) -> {per_file_counts.get(rel, 0)} vuln(s)"
+            )
+        # Pace batches: back-to-back big calls blow free-tier token/min
+        # windows and the next batch eats 429s.
+        time.sleep(3)
         if len(findings) >= 50:
             break
     vuln_count = len([f for f in findings if f.scanner == "ai-code-review" and not f.title.startswith("AI review failed")])
@@ -268,9 +441,9 @@ def review_codebase(
                 title="AI review: no issues found in sampled files",
                 severity=Severity.info,
                 description=(
-                    "Model read %d file(s) and reported nothing. "
+                    "Model reviewed %d file(s) and reported nothing. "
                     "Sampling is bounded — not a clean bill of health."
-                    % len(picked)
+                    % len(final_rels)
                 ),
                 location=repo_url or str(root),
             )
@@ -281,7 +454,7 @@ def review_codebase(
         Finding(
             scanner="ai-code-review",
             title=(
-                f"AI review manifest: {len(picked)} file(s) sampled, "
+                f"AI review manifest: {len(final_rels)} file(s) sampled, "
                 f"{total_chars} chars read via {cfg.get('provider', '')}/{cfg.get('model', '')} "
                 f"({vuln_count} vuln(s), {len(failed)} failed)"
             ),
@@ -289,7 +462,8 @@ def review_codebase(
             description="Per-file audit trail:\n" + "\n".join(manifest)[:2500],
             location=repo_url or str(root),
             raw={"manifest": manifest, "model": cfg.get("model", ""),
-                  "provider": cfg.get("provider", ""), "chars_read": total_chars},
+                  "provider": cfg.get("provider", ""), "chars_read": total_chars,
+                  "nominated": nominated},
         )
     )
     return findings

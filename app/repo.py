@@ -24,6 +24,33 @@ SKIP_DIRS = {
     "__pycache__", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
 }
 
+# Vendored/third-party trees: heuristic SAST + AI review waste their
+# budget here and generate pure noise (jquery flagged as SQLi).
+VENDORED_DIR_NAMES = {
+    "static", "assets", "vendor", "vendors", "third_party", "thirdparty",
+    "bower_components", "migrations", "fixtures", "seeders", "seeds",
+    "locale", "locales", "i18n", "test", "tests", "spec", "specs",
+    "mocks", "fixtures",
+}
+
+VENDORED_FILE_RE = re.compile(
+    r"(\.min\.(js|css)$|\.bundle\.(js|css)$|[-.][0-9a-f]{8,}\.(js|css)$|"
+    r"(package-lock|yarn\.lock|poetry\.lock|Pipfile\.lock|composer\.lock)$|"
+    r"\.(map|snap)$)",
+    re.I,
+)
+
+
+def is_vendored(path: Path, root: Path) -> bool:
+    """True for third-party/build/test trees the review should not spend on."""
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    if any(part.lower() in VENDORED_DIR_NAMES for part in parts[:-1]):
+        return True
+    return bool(VENDORED_FILE_RE.search(path.name))
+
 
 def validate_repo_url(repo_url: str) -> str:
     if not repo_url or len(repo_url) > 512:

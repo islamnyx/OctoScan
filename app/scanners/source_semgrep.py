@@ -11,7 +11,7 @@ import subprocess
 
 from app.config import settings
 from app.models import Finding, Severity
-from app.repo import iter_repo_files
+from app.repo import is_vendored, iter_repo_files
 from app.scanners.source_base import SourceScanner
 
 HEURISTICS: list[tuple[str, re.Pattern[str], Severity, str]] = [
@@ -95,6 +95,11 @@ class SemgrepScanner(SourceScanner):
     def _via_heuristics(self, note: str) -> list[Finding]:
         findings: list[Finding] = []
         for path in iter_repo_files(self.repo_path):
+            # Vendored trees (static/, migrations/, *.min.js, jquery etc.)
+            # matched the SQL-concat regex on string literals -> 13 pure
+            # FPs on django.nV. First-party code only.
+            if is_vendored(path, self.repo_path):
+                continue
             if path.suffix.lower() not in CODE_EXTS:
                 continue
             try:
