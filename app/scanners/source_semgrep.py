@@ -102,16 +102,21 @@ class SemgrepScanner(SourceScanner):
                 continue
             check = str(r.get("check_id", "semgrep"))
             path = str(r.get("path", ""))
-            sev_raw = str((r.get("extra") or {}).get("severity", "INFO")).upper()
+            extra = r.get("extra")
+            if not isinstance(extra, dict):
+                extra = {}
+            sev_raw = str(extra.get("severity", "INFO")).upper()
             sev = {"ERROR": Severity.high, "WARNING": Severity.medium}.get(sev_raw, Severity.low)
+            start = r.get("start")
+            line = start.get("line", "") if isinstance(start, dict) else ""
             findings.append(
                 Finding(
                     scanner=self.name,
                     title=f"Semgrep {check} in {path}",
                     severity=sev,
-                    description=str((r.get("extra") or {}).get("message") or check)[:500],
-                    evidence=str(r.get("extra") or {}).get("lines", "")[:300],
-                    location=f"{self.repo_url}#{path}:{r.get('start', {}).get('line', '')}",
+                    description=str(extra.get("message") or check)[:500],
+                    evidence=str(extra.get("lines", ""))[:300],
+                    location=f"{self.repo_url}#{path}:{line}",
                     recommendation="Review the flagged pattern and apply the rule's fix.",
                     raw={"check": check, "file": path},
                 )
