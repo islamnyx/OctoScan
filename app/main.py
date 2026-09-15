@@ -120,7 +120,7 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
         "=" * 40,
         f"Target: {job.target_url}",
         f"Scan ID: {job.id}",
-        f"Status: {job.status}",
+        f"Status: {job.status.value if hasattr(job.status, 'value') else job.status}",
         f"Started: {job.started_at}",
         f"Finished: {job.finished_at}",
         f"Scanners: {', '.join(job.scanners_run)}",
@@ -327,6 +327,83 @@ def get_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
     if not job:
         raise HTTPException(404, "repo scan not found")
     return job
+
+
+@app.get("/api/repo-scans/{scan_id}/report")
+def report_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
+    from app.repo_store import load_repo_job
+
+    scan_id = validate_scan_id(scan_id)
+    job = load_repo_job(scan_id)
+    if not job:
+        raise HTTPException(404, "repo scan not found")
+    lines = [
+        "OctoScan Report (codebase)",
+        "=" * 40,
+        f"Repo: {job.repo_url}",
+        f"Branch: {job.branch or 'default'}",
+        f"Scan ID: {job.id}",
+        f"Status: {job.status.value if hasattr(job.status, 'value') else job.status}",
+        f"Started: {job.started_at}",
+        f"Finished: {job.finished_at}",
+        f"Files scanned: {job.files_scanned}",
+        f"Scanners: {', '.join(job.scanners_run)}",
+        "",
+        "Summary",
+        "-" * 40,
+    ]
+    summary = job.summary or {}
+    counts = summary.get("counts") or job.counts()
+    for sev in [Severity.critical, Severity.high, Severity.medium, Severity.low, Severity.info]:
+        lines.append(f"  {sev.value.upper():10}: {counts.get(sev.value, 0)}")
+    runtime_counts = summary.get("runtime_counts")
+    if runtime_counts:
+        lines.append(f"  {'RUNTIME':10}: " + ", ".join(
+            f"{k}={runtime_counts.get(k, 0)}" for k in ("critical", "high", "medium", "low", "info")))
+    if summary.get("dev_only_findings"):
+        lines.append(f"  Dev-only findings: {summary['dev_only_findings']} (test/build tooling, not shipped)")
+    if summary.get("merged_duplicates"):
+        lines.append(f"  Duplicates merged: {summary['merged_duplicates']}")
+    if summary.get("findings_with_secrets"):
+        lines.append(f"  Secret findings: {summary['findings_with_secrets']}")
+    lines.append("")
+    lines.append("Findings")
+    lines.append("-" * 40)
+    for f in job.findings:
+        sev = f.severity.value.upper()
+        extra = f" (CVSS {f.cvss})" if f.cvss is not None else ""
+        lines.append(f"[{sev}]{extra} {f.title}")
+        lines.append(f"  Scanner: {f.scanner}")
+        lines.append(f"  Location: {f.location}")
+        scope = (f.raw or {}).get("scope")
+        if scope and scope != "runtime":
+            lines.append(f"  Scope: {scope}")
+        merged_count = (f.raw or {}).get("merged_count")
+        if merged_count and merged_count > 1:
+            sources = ", ".join((f.raw or {}).get("merged_sources") or [])
+            lines.append(f"  Merged: {merged_count}x ({sources})")
+        affected = (f.raw or {}).get("affected") or []
+        if affected:
+            shown = affected[:8]
+            for inst in shown:
+                via = f" via {', '.join(inst.get('via') or [])}" if inst.get("via") else ""
+                lines.append(
+                    f"    - {inst.get('package')}@{inst.get('version')} "
+                    f"({inst.get('kind', '?')}{via}, {inst.get('scope', '?')})")
+            if len(affected) > len(shown):
+                lines.append(f"    … and {len(affected) - len(shown)} more (full list in JSON export)")
+        if f.description:
+            lines.append(f"  Description: {f.description}")
+        if f.evidence:
+            lines.append(f"  Evidence: {f.evidence}")
+        if f.recommendation:
+            lines.append(f"  Recommendation: {f.recommendation}")
+        if f.cve:
+            lines.append(f"  CVE: {f.cve}")
+        if f.cwe:
+            lines.append(f"  CWE: {', '.join(f.cwe)}")
+        lines.append("")
+    return PlainTextResponse("\n".join(lines))
 
 
 @app.post("/api/repo-scans/{scan_id}/ai-analyze", response_model=RepoScanJob)

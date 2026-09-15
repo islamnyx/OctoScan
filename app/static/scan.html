@@ -244,7 +244,7 @@
         a.download = `scan-${j.id}.json`;
         a.click();
       });
-      if (!isRepo) mkBtn("Text report", false, () => window.open(apiBase + "/report", "_blank"));
+      mkBtn("Text report", false, () => window.open(apiBase + "/report", "_blank"));
       mkBtn("AI triage", true, async (ev) => {
         const btn = ev.currentTarget;
         btn.disabled = true;
