@@ -1,9 +1,9 @@
-"""OSV dependency scan (Phase 2, P3).
+"""OSV dependency scan (Phase 2, P3 + audit-2 rollup).
 
 Runs `osv-scanner scan source` over the cloned repo (lockfiles /
-manifests) and reports known CVEs per package. Falls back to an
-informational note when the binary is missing so repo scans work
-without installs. `--no-ignore` is required: clones carry a .git dir
+manifests) and reports known CVEs. Same advisory affecting N installed
+versions rolls up into ONE finding listing every install (Q1) instead of
+N duplicate rows. `--no-ignore` is required: clones carry a .git dir
 whose ignore rules otherwise hide every manifest.
 """
 from __future__ import annotations
@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import subprocess
 
-from app.config import settings
+from app.config import ROOT, settings
+from app.cvss import max_cvss
 from app.models import Finding, Severity
 from app.scanners.source_base import SourceScanner
 
@@ -22,6 +23,29 @@ SEV_MAP = {
     "MEDIUM": Severity.medium,
     "LOW": Severity.low,
 }
+
+_SEV_RANK = {
+    Severity.critical: 5, Severity.high: 4, Severity.medium: 3,
+    Severity.low: 2, Severity.info: 1,
+}
+
+
+def _root_direct_deps(repo_path) -> set[str] | None:
+    """Names from the root package.json (any dep section). None if the
+    repo isn't npm-rooted or the manifest is unreadable (-> 'unknown')."""
+    try:
+        base = repo_path if repo_path.is_absolute() else ROOT / repo_path
+        manifest = json.loads((base / "package.json").read_text())
+        if not isinstance(manifest, dict):
+            return None
+        names: set[str] = set()
+        for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            deps = manifest.get(section)
+            if isinstance(deps, dict):
+                names.update(str(k) for k in deps)
+        return names
+    except Exception:
+        return None
 
 
 def _fixed_versions(vuln: dict) -> list[str]:
@@ -76,7 +100,8 @@ class OsvScanner(SourceScanner):
         if not isinstance(results, list):
             return self._unavailable("osv-scanner output unparseable")
 
-        findings: list[Finding] = []
+        direct = _root_direct_deps(self.repo_path)
+        groups: dict[str, dict] = {}
         for res in results:
             if not isinstance(res, dict):
                 continue
@@ -91,6 +116,7 @@ class OsvScanner(SourceScanner):
                 name = str(info.get("name", "?"))
                 version = str(info.get("version", "?"))
                 ecosystem = str(info.get("ecosystem", "?"))
+                kind = "unknown" if direct is None else ("direct" if name in direct else "transitive")
                 vulns = pkg.get("vulnerabilities")
                 if not isinstance(vulns, list):
                     continue
@@ -100,30 +126,78 @@ class OsvScanner(SourceScanner):
                     vid = str(vuln.get("id", "OSV"))
                     aliases = [str(a) for a in (vuln.get("aliases") or []) if isinstance(a, str)]
                     cve = next((a for a in aliases if a.startswith("CVE-")), None)
+                    key = cve or vid
                     db = vuln.get("database_specific")
                     db = db if isinstance(db, dict) else {}
                     sev = SEV_MAP.get(str(db.get("severity", "")).upper(), Severity.medium)
+                    score = max_cvss(vuln.get("severity"))
                     cwe = [str(c) for c in (db.get("cwe_ids") or []) if isinstance(c, str)][:5]
                     summary = str(vuln.get("summary") or vuln.get("details") or vid)[:300]
-                    fixed = _fixed_versions(vuln)
-                    rec = f"Upgrade {name} to {', '.join('>=' + f for f in fixed)}." if fixed else f"Upgrade {name} to a patched release."
-                    findings.append(
-                        Finding(
-                            scanner=self.name,
-                            title=f"OSV {name}@{version}: {vid}" + (f" ({cve})" if cve else ""),
-                            severity=sev,
-                            description=f"{summary} [{ecosystem} {name}@{version}, {vid}].",
-                            evidence=f"{name}@{version} ({ecosystem})",
-                            location=f"{self.repo_url}#{lockfile}" if self.repo_url else lockfile,
-                            recommendation=rec,
-                            cve=cve,
-                            cwe=cwe,
-                            raw={"package": name, "version": version, "ecosystem": ecosystem,
-                                 "osv_id": vid, "aliases": aliases, "fixed": fixed},
-                        )
-                    )
-                    if len(findings) >= 100:
-                        return findings
+                    g = groups.setdefault(key, {
+                        "cve": cve, "vid": vid, "vids": [], "aliases": [],
+                        "summary": summary, "sev": Severity.info,
+                        "cvss": None, "cwe": cwe, "lockfile": lockfile,
+                        "installs": [], "fixed": [],
+                    })
+                    if vid not in g["vids"]:
+                        g["vids"].append(vid)
+                    for a in aliases:
+                        if a not in g["aliases"]:
+                            g["aliases"].append(a)
+                    if _SEV_RANK[sev] > _SEV_RANK[g["sev"]]:
+                        g["sev"] = sev
+                    if score is not None and (g["cvss"] is None or score > g["cvss"]):
+                        g["cvss"] = score
+                    for c in cwe:
+                        if c not in g["cwe"] and len(g["cwe"]) < 5:
+                            g["cwe"].append(c)
+                    g["installs"].append({
+                        "package": name, "version": version,
+                        "ecosystem": ecosystem, "kind": kind,
+                    })
+                    for f in _fixed_versions(vuln):
+                        if f not in g["fixed"]:
+                            g["fixed"].append(f)
+
+        findings: list[Finding] = []
+        for key, g in groups.items():
+            installs = g["installs"]
+            names = sorted({i["package"] for i in installs})
+            head = names[0] + (f" +{len(names) - 1} more" if len(names) > 1 else "")
+            n = len(installs)
+            shown = ", ".join(
+                f"{i['package']}@{i['version']} ({i['kind']})" for i in installs[:8]
+            ) + (f" +{n - 8} more" if n > 8 else "")
+            directs = sorted({i["package"] for i in installs if i["kind"] == "direct"})
+            if directs:
+                rec = f"Bump {', '.join(directs)} in package.json"
+                if g["fixed"]:
+                    rec += f" to {', '.join('>=' + f for f in g['fixed'])}"
+                rec += "; then `npm audit fix` to clear transitive copies."
+            elif g["fixed"]:
+                rec = f"Transitive only — `npm audit fix` or bump the parent to reach {', '.join('>=' + f for f in g['fixed'])}."
+            else:
+                rec = "Transitive only — `npm audit fix` or bump the parent to a patched release."
+            findings.append(
+                Finding(
+                    scanner=self.name,
+                    title=f"OSV {key} in {head}" + (f" ({n} installs)" if n > 1 else ""),
+                    severity=g["sev"],
+                    description=f"{g['summary']} Affected installs ({n}): {shown}.",
+                    evidence=shown[:400],
+                    location=f"{self.repo_url}#{g['lockfile']}" if self.repo_url else g["lockfile"],
+                    recommendation=rec,
+                    cve=g["cve"],
+                    cvss=g["cvss"],
+                    cwe=g["cwe"],
+                    raw={"osv_id": g["vid"], "osv_ids": g["vids"], "aliases": g["aliases"],
+                         "fixed": g["fixed"], "affected": installs},
+                )
+            )
+        findings.sort(
+            key=lambda f: ({"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}[f.severity.value], f.cvss or 0),
+            reverse=True,
+        )
         if not findings:
             findings.append(Finding(
                 scanner=self.name, title="No known CVEs in dependencies (osv)",
@@ -131,7 +205,7 @@ class OsvScanner(SourceScanner):
                 description="OSV scan of lockfiles/manifests completed without matches.",
                 location=self.repo_url or str(self.repo_path),
             ))
-        return findings
+        return findings[:100]
 
     def _unavailable(self, note: str) -> list[Finding]:
         return [Finding(

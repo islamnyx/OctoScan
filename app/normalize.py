@@ -1,5 +1,7 @@
 from app.models import Finding, Severity
 
+import re
+
 SEVERITY_RANK = {
     Severity.critical: 5,
     Severity.high: 4,
@@ -69,7 +71,7 @@ def prioritize(findings: list[Finding]) -> list[Finding]:
 SOURCE_SCANNERS = {"gitleaks", "semgrep", "builtin-secrets", "osv", "ai-code-review", "ai"}
 
 
-def _source_type(text: str) -> str | None:
+def _source_type(text: str, check: str = "", rule: str = "") -> str | None:
     """Coarse finding-type slug so the same underlying issue reported by
     two source scanners merges (e.g. server.key flagged by both semgrep
     and gitleaks). Unknown types return None = never merge."""
@@ -97,7 +99,11 @@ def _source_type(text: str) -> str | None:
         return "idor"
     if "cve-" in text or text.startswith("cve"):
         return "cve"
-    return None
+    # Fallback: same rule/check on the same file+line merges even when no
+    # keyword matches (e.g. a registry rule reported 6x identical). The
+    # check/rule slug keeps distinct rules on one line distinct.
+    slug = re.sub(r"[^a-z0-9]+", "-", f"{check} {rule}".strip().lower()).strip("-")[:80]
+    return f"rule-{slug}" if slug else None
 
 
 def _source_concept(f: Finding) -> str | None:
@@ -117,7 +123,7 @@ def _source_concept(f: Finding) -> str | None:
         f.title or "", f.description or "",
         str(raw.get("check") or ""), str(raw.get("rule") or ""),
     ]).lower()
-    kind = _source_type(text)
+    kind = _source_type(text, str(raw.get("check") or ""), str(raw.get("rule") or ""))
     if kind is None:
         return None
     return f"src-{rel.strip().lower()}-{line.strip()}-{kind}"

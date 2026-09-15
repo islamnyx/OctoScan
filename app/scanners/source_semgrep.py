@@ -123,7 +123,8 @@ class SemgrepScanner(SourceScanner):
 
         Semgrep redacts `extra.lines` as "requires login" for some rules
         (pro-engine gating without auth), so the snippet must come from
-        disk — never re-fetched from the repo URL.
+        disk — never re-fetched from the repo URL. Flagged lines get a
+        `>>` marker so the anchor is visible even near the file top.
         """
         try:
             if not rel or not start:
@@ -134,7 +135,12 @@ class SemgrepScanner(SourceScanner):
                 return ""
             lo = max(0, start - 1 - context)
             hi = min(len(lines), (end or start) + context)
-            return "\n".join(lines[lo:hi])[:cap]
+            marked = []
+            for idx in range(lo, hi):
+                lineno = idx + 1
+                flag = ">> " if start <= lineno <= (end or start) else "   "
+                marked.append(f"{flag}{lines[idx]}")
+            return "\n".join(marked)[:cap]
         except Exception:
             return ""
 

@@ -53,6 +53,13 @@
     .pill.low { background: var(--low-bg); color: var(--low); }
     .pill.info { background: var(--info-bg); color: var(--info); }
     .summary-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    .topfix { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 14px; font-size: 13px; }
+    .topfix h3 { margin: 0 0 6px; font-size: 13px; }
+    .topfix ol { margin: 4px 0 2px; padding-left: 20px; }
+    .topfix li { margin: 3px 0; }
+    .topfix a { color: var(--text); text-decoration: none; }
+    .topfix a:hover { color: var(--accent); text-decoration: underline; }
+    .f-meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
     .btn { appearance: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: var(--surface-2); color: var(--text); }
     .btn:hover { background: var(--surface-2); }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -119,6 +126,7 @@
     <div id="state-banner"></div>
     <div id="ai-result"></div>
     <div class="summarybar" id="counts" style="display:none;"></div>
+    <div id="topfix"></div>
     <div class="filterbar" id="filters" style="display:none;">
       <button class="fbtn active" data-sev="all">All</button>
       <button class="fbtn" data-sev="critical">Critical</button>
@@ -243,6 +251,20 @@
       });
       filtersEl.style.display = "flex";
 
+      // Top-fix strip: first 5 actionable findings (backend sorts by
+      // severity then CVSS), linking down to the full rows as drill-down.
+      const topBox = document.getElementById("topfix");
+      const actionable = (j.findings || []).filter(f => f.severity && f.severity !== "info").slice(0, 5);
+      if (actionable.length) {
+        topBox.innerHTML = `<div class="topfix"><h3>Fix first</h3><ol>`
+          + actionable.map(f => {
+              const score = (f.cvss !== null && f.cvss !== undefined) ? ` · CVSS ${esc(String(f.cvss))}` : "";
+              return `<li><a href="#f-${esc(f.id)}"><b>${esc(f.severity)}</b> — ${esc((f.title || "").slice(0, 110))}${score}</a></li>`;
+            }).join("") + `</ol></div>`;
+      } else {
+        topBox.innerHTML = "";
+      }
+
       const aiBox = document.getElementById("ai-result");
       aiBox.innerHTML = "";
       const aiFinding = (j.findings || []).find(f => f.scanner === "ai");
@@ -298,11 +320,17 @@
         const tbody = document.createElement("tbody");
         findings.forEach(f => {
           const tr = document.createElement("tr");
+          tr.id = "f-" + f.id;
           const raw = f.raw || {};
           const merged = raw.merged_count > 1
             ? `<span class="merged-tag" style="display:inline-block;font-size:11px;font-weight:600;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;" title="${esc((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged</span>` : "";
+          const metaBits = [];
+          if (f.cvss !== null && f.cvss !== undefined) metaBits.push("CVSS " + esc(String(f.cvss)));
+          (f.cwe || []).forEach(c => metaBits.push(esc(c)));
+          (f.owasp || []).forEach(o => metaBits.push(esc(o)));
+          const meta = metaBits.length ? `<div class="f-meta">${metaBits.join(" · ")}</div>` : "";
           tr.innerHTML = `<td><span class="sev ${f.severity}">${f.severity}</span></td>`
-            + `<td><span class="f-title">${esc(f.title)}</span>${merged}`
+            + `<td><span class="f-title">${esc(f.title)}</span>${merged}${meta}`
             + `<div class="f-desc">${esc((f.description || "").slice(0, 400))}</div>`
             + (f.evidence ? `<div class="f-ev">${esc(f.evidence.slice(0, 300))}</div>` : "")
             + (f.cve ? `<div class="f-ev">${esc(f.cve)}</div>` : "") + `</td>`
