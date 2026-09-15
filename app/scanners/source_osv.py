@@ -277,7 +277,7 @@ class OsvScanner(SourceScanner):
                 description="OSV scan of lockfiles/manifests completed without matches.",
                 location=self.repo_url or str(self.repo_path),
             ))
-        return findings[:100]
+        return findings[: max(1, settings.osv_max_groups)]
 
     def _unavailable(self, note: str) -> list[Finding]:
         return [Finding(

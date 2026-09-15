@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     gitleaks_bin: str = "gitleaks"
     semgrep_bin: str = "semgrep"
     osv_bin: str = "osv-scanner"
+    # Cap on grouped OSV findings per scan (NodeGoat: ~110 distinct CVEs).
+    # Bounds dashboard rows / job.json size; AI triage separately takes top 40.
+    osv_max_groups: int = 300
     repos_dir: Path = ROOT / "data" / "repos"
     repo_clone_timeout_s: int = 120
     repo_max_files: int = 20000
