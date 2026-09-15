@@ -5,19 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Scan results · Security Precheck</title>
   <style>
+    @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url("/static/fonts/spacegrotesk-500.woff2") format("woff2"); }
+    @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url("/static/fonts/spacegrotesk-700.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/jetbrainsmono-400.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/jetbrainsmono-600.woff2") format("woff2"); }
     :root {
-      --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafc;
-      --border: #dfe4ea; --border-strong: #c9d1db;
-      --text: #1a2330; --muted: #5d6b7d; --faint: #8a97a8;
-      --accent: #1f6feb; --accent-dark: #1a5fd0; --accent-soft: #e8f0fe;
-      --crit: #b42318; --crit-bg: #fdeceb;
-      --high: #b54708; --high-bg: #fef3e6;
-      --med: #92690e; --med-bg: #fef7e0;
-      --low: #067647; --low-bg: #e7f6ee;
-      --info: #475467; --info-bg: #eef1f5;
-      --ok: #067647; --ok-bg: #e7f6ee; --err: #b42318; --err-bg: #fdeceb;
-      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color-scheme: dark;
+      --bg: #1A1A1A; --surface: #242424; --surface-2: #2C2C2C;
+      --border: #3A3A3A; --border-strong: #4C4C4C;
+      --text: #FFFFFF; --muted: #6A748B; --faint: #9AA3B5;
+      --accent: #FF6B00; --accent-dark: #E05F00; --accent-soft: rgba(255,107,0,.14);
+      --crit: #FF6B00; --crit-bg: rgba(255,107,0,.16);
+      --high: #FF8C2E; --high-bg: rgba(255,140,46,.13);
+      --med: #9AA3B5; --med-bg: rgba(106,116,139,.20);
+      --low: #6A748B; --low-bg: rgba(106,116,139,.13);
+      --info: #6A748B; --info-bg: rgba(106,116,139,.10);
+      --ok: #4ADE80; --ok-bg: rgba(74,222,128,.12); --err: #FF8F84; --err-bg: rgba(255,143,132,.12);
+      --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      --sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       --radius: 10px;
     }
     * { box-sizing: border-box; }
@@ -37,7 +42,7 @@
     .st { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; }
     .st.completed { background: var(--ok-bg); color: var(--ok); }
     .st.failed { background: var(--err-bg); color: var(--err); }
-    .st.running, .st.queued { background: var(--accent-soft); color: #14489b; }
+    .st.running, .st.queued { background: var(--accent-soft); color: #FFB37A; }
     .st.paused { background: var(--high-bg); color: var(--high); }
     .summarybar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
     .pill { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 11px; }
@@ -48,19 +53,19 @@
     .pill.low { background: var(--low-bg); color: var(--low); }
     .pill.info { background: var(--info-bg); color: var(--info); }
     .summary-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-    .btn { appearance: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: #fff; color: var(--text); }
+    .btn { appearance: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: var(--surface-2); color: var(--text); }
     .btn:hover { background: var(--surface-2); }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
     .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
     .btn.primary:hover { background: var(--accent-dark); }
     .banner { border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; border: 1px solid; }
-    .banner.busy { background: var(--accent-soft); border-color: #c2d7fb; color: #14489b; }
-    .banner.error { background: var(--err-bg); border-color: #f3c2bd; color: #8f1d14; }
+    .banner.busy { background: var(--accent-soft); border-color: rgba(255,107,0,.35); color: #FFB37A; }
+    .banner.error { background: var(--err-bg); border-color: rgba(255,143,132,.35); color: var(--err); }
     .banner a { color: inherit; font-weight: 700; }
     .filterbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-    .fbtn { appearance: none; border: 1px solid var(--border-strong); background: #fff; color: var(--muted); border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .fbtn { appearance: none; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
     .fbtn:hover { border-color: var(--accent); color: var(--accent); }
-    .fbtn.active { background: var(--text); border-color: var(--text); color: #fff; }
+    .fbtn.active { background: #fff; border-color: #fff; color: #1A1A1A; }
     .ai-panel { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
     .ai-panel h3 { margin: 0 0 6px; font-size: 13.5px; }
     .ai-panel h3 .model { font-weight: 400; color: var(--muted); font-size: 12.5px; }
@@ -68,7 +73,7 @@
     .ai-panel ul { margin: 8px 0 4px; padding-left: 18px; font-size: 13px; }
     details.manifest { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; }
     details.manifest summary { cursor: pointer; font-weight: 600; color: var(--muted); }
-    details.manifest pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0 2px; }
+    details.manifest pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; background: #141414; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0 2px; }
     .finding-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
     .finding-head { width: 100%; appearance: none; border: 0; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 12px 16px; font: inherit; cursor: pointer; text-align: left; }
     .finding-head:hover { background: var(--surface-2); }
@@ -81,7 +86,7 @@
     table.findings th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; padding: 8px 16px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
     table.findings td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
     table.findings tr:last-child td { border-bottom: 0; }
-    table.findings tbody tr:hover { background: #fafbfc; }
+    table.findings tbody tr:hover { background: rgba(255,255,255,.045); }
     .sev { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
     .sev.critical { background: var(--crit-bg); color: var(--crit); }
     .sev.high { background: var(--high-bg); color: var(--high); }
@@ -99,10 +104,7 @@
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" style="display:flex; align-items:center; gap:10px; margin-right:auto; text-decoration:none; color:inherit;">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 2l7.5 3v6c0 4.6-3.2 8.4-7.5 10-4.3-1.6-7.5-5.4-7.5-10V5L12 2z" fill="#1f6feb"/>
-          <path d="M8.5 12l2.4 2.4L15.7 9.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <img src="/static/logo.png" alt="Security Precheck logo" width="28" height="28" style="border-radius:6px" />
         <span class="brand-name" style="font-size:15px; font-weight:700;">Security Precheck</span>
       </a>
       <a class="backlink" href="/">All scans</a>
@@ -315,7 +317,7 @@
         resultsEl.appendChild(section);
       });
       if (!resultsEl.hasChildNodes()) {
-        resultsEl.innerHTML = `<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px;color:var(--muted);">No findings match this filter.</div>`;
+        resultsEl.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;color:var(--muted);">No findings match this filter.</div>`;
       }
     }
 

@@ -5,21 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Security Precheck</title>
   <style>
+    @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url("/static/fonts/spacegrotesk-500.woff2") format("woff2"); }
+    @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url("/static/fonts/spacegrotesk-700.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/jetbrainsmono-400.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/jetbrainsmono-600.woff2") format("woff2"); }
     :root {
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --border: #dfe4ea;
-      --border-strong: #c9d1db;
-      --text: #1a2330;
-      --muted: #5d6b7d;
-      --faint: #8a97a8;
-      --accent: #1f6feb;
-      --accent-dark: #1a5fd0;
-      --accent-soft: #e8f0fe;
-      --ok: #067647; --ok-bg: #e7f6ee;
-      --err: #b42318; --err-bg: #fdeceb;
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color-scheme: dark;
+      --bg: #1A1A1A;
+      --surface: #242424;
+      --surface-2: #2C2C2C;
+      --border: #3A3A3A;
+      --border-strong: #4C4C4C;
+      --text: #FFFFFF;
+      --muted: #6A748B;
+      --faint: #9AA3B5;
+      --accent: #FF6B00;
+      --accent-dark: #E05F00;
+      --accent-soft: rgba(255,107,0,.14);
+      --ok: #4ADE80; --ok-bg: rgba(74,222,128,.12);
+      --err: #FF8F84; --err-bg: rgba(255,143,132,.12);
+      --sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
       --radius: 10px;
     }
     * { box-sizing: border-box; }
@@ -52,26 +58,26 @@
     .field .note { font-size: 12px; color: var(--faint); font-weight: 400; }
     input[type="url"], input[type="text"], input[type="password"] {
       font: inherit; font-size: 13.5px; color: var(--text);
-      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; width: 100%;
+      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); width: 100%; color-scheme: dark;
     }
     input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     input::placeholder { color: var(--faint); }
     select {
       font: inherit; font-size: 13.5px; color: var(--text);
-      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; width: 100%;
+      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); width: 100%; color-scheme: dark;
     }
     .actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
     .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; padding: 9px 18px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; }
     .btn:hover { background: var(--accent-dark); }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn.secondary { background: #fff; border-color: var(--border-strong); color: var(--text); }
+    .btn.secondary { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
     .btn.secondary:hover { background: var(--surface-2); }
     .checkline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
     .checkline input { width: 15px; height: 15px; accent-color: var(--accent); }
     .formhint { font-size: 12.5px; color: var(--faint); margin: 10px 0 0; }
     .banner { display: none; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-top: 14px; border: 1px solid; }
     .banner.show { display: block; }
-    .banner.error { background: var(--err-bg); border-color: #f3c2bd; color: #8f1d14; }
+    .banner.error { background: var(--err-bg); border-color: rgba(255,143,132,.35); color: var(--err); }
     .hist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 860px) { .hist-grid { grid-template-columns: 1fr; } }
     .hist-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -83,21 +89,21 @@
     .prov-name { font-weight: 700; }
     .prov-meta { color: var(--muted); font-size: 12px; }
     .prov-actions { text-align: right; white-space: nowrap; }
-    .prov-actions button { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; margin-left: 5px; }
+    .prov-actions button { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; margin-left: 5px; }
     .prov-actions button:hover { background: var(--surface-2); }
-    .prov-actions button.danger { color: var(--err); border-color: #f3c2bd; }
+    .prov-actions button.danger { color: var(--err); border-color: rgba(255,143,132,.35); }
     .active-badge { font-size: 10.5px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 5px; padding: 1px 7px; margin-left: 6px; }
     table.hist td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     table.hist tr:last-child td { border-bottom: 0; }
     table.hist tbody tr { cursor: pointer; }
-    table.hist tbody tr:hover { background: #fafbfc; }
+    table.hist tbody tr:hover { background: rgba(255,255,255,.045); }
     .hist-target { font-weight: 600; word-break: break-all; }
     .hist-meta { color: var(--muted); font-size: 12px; white-space: nowrap; text-align: right; }
     .st { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; margin-left: 8px; white-space: nowrap; }
     .st.completed { background: var(--ok-bg); color: var(--ok); }
     .st.failed { background: var(--err-bg); color: var(--err); }
-    .st.running, .st.queued { background: var(--accent-soft); color: #14489b; }
-    .st.paused { background: #fef3e6; color: #b54708; }
+    .st.running, .st.queued { background: var(--accent-soft); color: #FFB37A; }
+    .st.paused { background: rgba(255,140,46,.14); color: #FF8C2E; }
     .empty { padding: 14px 16px; color: var(--faint); font-size: 12.5px; }
     .ai-badge { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 2px 7px; margin-left: 6px; }
     footer { max-width: 1120px; margin: 0 auto; padding: 0 24px 32px; color: var(--faint); font-size: 12px; }
@@ -107,10 +113,7 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 2l7.5 3v6c0 4.6-3.2 8.4-7.5 10-4.3-1.6-7.5-5.4-7.5-10V5L12 2z" fill="#1f6feb"/>
-          <path d="M8.5 12l2.4 2.4L15.7 9.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <img src="/static/logo.png" alt="Security Precheck logo" width="30" height="30" style="border-radius:7px" />
         <span class="brand-name">Security Precheck</span>
         <span class="brand-tag">MVP</span>
       </div>
