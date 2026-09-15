@@ -75,13 +75,15 @@ def _fixed_versions(vuln: dict) -> list[str]:
     return fixed[:3]
 
 
-def _parent_map(repo_path) -> dict[str, set[str]]:
-    """Child package name -> set of immediate parent package names, from
-    lockfile v2 `packages` entries' `dependencies` maps. Root-level
-    installs resolve to {'(root)'}. Name-level (not version-pinned):
-    enough to name the parent that pulls a transitive dep in.
+def _dep_graph(repo_path) -> tuple[dict[str, set[str]], set[str], set[str]]:
+    """Forward adjacency owner -> dep names, plus root prod/dev dep names.
+
+    Parsed from the lockfile so it works without node/npm installed.
+    Falls back to root package.json names when no lockfile is present.
     """
-    parents: dict[str, set[str]] = {}
+    forward: dict[str, set[str]] = {}
+    prod_roots: set[str] = set()
+    dev_roots: set[str] = set()
     try:
         base = repo_path if repo_path.is_absolute() else ROOT / repo_path
         lock = None
@@ -90,39 +92,75 @@ def _parent_map(repo_path) -> dict[str, set[str]]:
             if p.is_file():
                 lock = json.loads(p.read_text())
                 break
-        if not isinstance(lock, dict):
-            return parents
-        packages = lock.get("packages")
-        if not isinstance(packages, dict):
+        if isinstance(lock, dict):
+            packages = lock.get("packages")
+            if isinstance(packages, dict):
+                for path, info in packages.items():
+                    if not isinstance(info, dict) or not isinstance(path, str):
+                        continue
+                    if path in ("", "."):
+                        owner = "(root)"
+                        for depkey, target in (("dependencies", prod_roots), ("devDependencies", dev_roots)):
+                            deps = info.get(depkey)
+                            if isinstance(deps, dict):
+                                target.update(str(k) for k in deps)
+                    else:
+                        segs = [s for s in path.split("/") if s not in ("", "node_modules")]
+                        owner = segs[-1] if len(segs) == 1 else (segs[-2] if len(segs) >= 2 else "(root)")
+                    for depkey in ("dependencies", "optionalDependencies", "peerDependencies"):
+                        deps = info.get(depkey)
+                        if isinstance(deps, dict):
+                            forward.setdefault(owner, set()).update(str(k) for k in deps)
+                return forward, prod_roots, dev_roots
             # Legacy v1 shape: dependencies tree with `requires`.
             deps = lock.get("dependencies")
             if isinstance(deps, dict):
                 for name, info in deps.items():
                     if isinstance(info, dict) and isinstance(info.get("requires"), dict):
-                        for child in info["requires"]:
-                            parents.setdefault(str(child), set()).add(str(name))
-            return parents
-        for path, info in packages.items():
-            if not isinstance(info, dict) or not isinstance(path, str):
-                continue
-            if path in ("", "."):
-                owner = "(root)"
-            else:
-                # node_modules/X -> declared by X itself.
-                # node_modules/A/.../node_modules/B -> declared by A.
-                segs = [s for s in path.split("/") if s not in ("", "node_modules")]
-                owner = segs[-1] if len(segs) == 1 else (segs[-2] if len(segs) >= 2 else "(root)")
-            declared: dict = {}
-            for depkey in ("dependencies", "optionalDependencies", "peerDependencies"):
-                deps = info.get(depkey)
-                if isinstance(deps, dict):
-                    declared.update(deps)
-            for child in declared:
-                # "(root)" as a declarer only counts for real direct deps;
-                # lockfile drift otherwise mislabels transitives as root-owned.
-                parents.setdefault(str(child), set()).add(owner)
+                        forward.setdefault(str(name), set()).update(
+                            str(k) for k in info["requires"])
+            return forward, prod_roots, dev_roots
     except Exception:
         pass
+    # No usable lockfile: root package.json names as roots.
+    try:
+        base = repo_path if repo_path.is_absolute() else ROOT / repo_path
+        manifest = json.loads((base / "package.json").read_text())
+        if isinstance(manifest, dict):
+            for depkey, target in (("dependencies", prod_roots), ("devDependencies", dev_roots)):
+                deps = manifest.get(depkey)
+                if isinstance(deps, dict):
+                    target.update(str(k) for k in deps)
+    except Exception:
+        pass
+    return forward, prod_roots, dev_roots
+
+
+def _runtime_closure(forward: dict[str, set[str]], roots: set[str]) -> set[str]:
+    seen = set(roots)
+    stack = list(roots)
+    while stack:
+        owner = stack.pop()
+        for dep in forward.get(owner, ()):
+            if dep not in seen:
+                seen.add(dep)
+                stack.append(dep)
+    return seen
+
+
+def _parent_map(repo_path) -> dict[str, set[str]]:
+    """Child package name -> set of immediate parent package names.
+
+    Inverted from _dep_graph (same lockfile parse, no duplication).
+    Root-level installs resolve to {'(root)'}. Name-level (not
+    version-pinned): enough to name the parent that pulls a
+    transitive dep in.
+    """
+    forward, _, _ = _dep_graph(repo_path)
+    parents: dict[str, set[str]] = {}
+    for owner, deps in forward.items():
+        for child in deps:
+            parents.setdefault(child, set()).add(owner)
     return parents
 
 
@@ -157,6 +195,9 @@ class OsvScanner(SourceScanner):
 
         direct = _root_direct_deps(self.repo_path)
         parents = _parent_map(self.repo_path)
+        forward, prod_roots, dev_roots = _dep_graph(self.repo_path)
+        runtime_names = _runtime_closure(forward, prod_roots)
+        dev_names = _runtime_closure(forward, dev_roots)
         groups: dict[str, dict] = {}
         for res in results:
             if not isinstance(res, dict):
@@ -176,7 +217,16 @@ class OsvScanner(SourceScanner):
                 via = sorted((parents.get(name) or set()) - {name})
                 if kind == "transitive":
                     via = [v for v in via if v != "(root)"]
-                via = via[:3]
+                via = via[:4]
+                # Scope: reachable from prod deps = ships to production.
+                # Dev-only tooling (mocha/cypress/nyc) never executes in
+                # the deployed app, so its attack surface is CI-only.
+                if name in runtime_names:
+                    scope = "runtime"
+                elif name in dev_names:
+                    scope = "dev"
+                else:
+                    scope = "unknown"
                 vulns = pkg.get("vulnerabilities")
                 if not isinstance(vulns, list):
                     continue
@@ -213,7 +263,8 @@ class OsvScanner(SourceScanner):
                             g["cwe"].append(c)
                     g["installs"].append({
                         "package": name, "version": version,
-                        "ecosystem": ecosystem, "kind": kind, "via": via,
+                        "ecosystem": ecosystem, "kind": kind,
+                        "via": via, "scope": scope,
                     })
                     for f in _fixed_versions(vuln):
                         if f not in g["fixed"]:
@@ -238,18 +289,30 @@ class OsvScanner(SourceScanner):
             shown = ", ".join(_label(i) for i in installs[:8]) + (f" +{n - 8} more" if n > 8 else "")
             directs = sorted({i["package"] for i in installs if i["kind"] == "direct"})
             via_names = sorted({v for i in installs for v in (i.get("via") or []) if v != "(root)"})
+            scopes = {i.get("scope", "unknown") for i in installs}
+            if scopes == {"runtime"}:
+                scope = "runtime"
+            elif scopes == {"dev"}:
+                scope = "dev"
+            elif scopes == {"unknown"}:
+                scope = "unknown"
+            else:
+                scope = "mixed"
+            listed_parents = ", ".join(via_names[:4]) + (f" +{len(via_names) - 4} more" if len(via_names) > 4 else "")
             if directs:
                 rec = f"Bump {', '.join(directs)} in package.json"
                 if g["fixed"]:
                     rec += f" to {', '.join('>=' + f for f in g['fixed'])}"
                 rec += "; then `npm audit fix` to clear transitive copies."
             elif via_names:
-                rec = f"Pulled in via {', '.join(via_names[:3])} — `npm audit fix`, or bump {via_names[0]}"
-                rec += f" past {', '.join('>=' + f for f in g['fixed'])}." if g["fixed"] else " to a patched release."
+                rec = f"Pulled in via {listed_parents} — `npm audit fix` to resolve every path"
+                rec += f", or bump each parent past {', '.join('>=' + f for f in g['fixed'])}." if g["fixed"] else "."
             elif g["fixed"]:
                 rec = f"Transitive only — `npm audit fix` or bump the parent to reach {', '.join('>=' + f for f in g['fixed'])}."
             else:
                 rec = "Transitive only — `npm audit fix` or bump the parent to a patched release."
+            if scope == "dev":
+                rec += " Dev-only scope: this code never ships to production (CI/test tooling)."
             findings.append(
                 Finding(
                     scanner=self.name,
@@ -263,7 +326,7 @@ class OsvScanner(SourceScanner):
                     cvss=g["cvss"],
                     cwe=g["cwe"],
                     raw={"osv_id": g["vid"], "osv_ids": g["vids"], "aliases": g["aliases"],
-                         "fixed": g["fixed"], "affected": installs},
+                         "fixed": g["fixed"], "affected": installs, "scope": scope},
                 )
             )
         findings.sort(

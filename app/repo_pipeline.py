@@ -11,7 +11,7 @@ from typing import Callable
 from app import activity, ai as ai_layer
 from app import ai_review
 from app import control
-from app.models import Finding, RepoScanJob, ScanStatus
+from app.models import Finding, RepoScanJob, ScanStatus, Severity
 from app.normalize import prioritize
 from app.repo import clone_repo, iter_repo_files
 from app.repo_store import load_repo_job, repo_workdir, save_repo_job
@@ -33,8 +33,21 @@ def repo_summary(job: RepoScanJob, raw_count: int) -> dict:
         if any(k in f"{f.title or ''} {f.description or ''}".lower() for k in secret_keys)
     )
     merged = sum(int((f.raw or {}).get("merged_count", 1)) - 1 for f in job.findings)
+    # Scope split (Q6/S2): OSV findings carry raw.scope (runtime/dev/
+    # mixed/unknown); first-party findings have no scope and count as
+    # runtime since that code ships. Severity stays honest — scope is
+    # a separate axis for filtering, never a downgrade.
+    runtime_counts = {s.value: 0 for s in Severity}
+    dev_only = 0
+    for f in job.findings:
+        if (f.raw or {}).get("scope") == "dev":
+            dev_only += 1
+        else:
+            runtime_counts[f.severity.value] += 1
     return {
         "counts": job.counts(),
+        "runtime_counts": runtime_counts,
+        "dev_only_findings": dev_only,
         "raw_findings": raw_count,
         "findings": len(job.findings),
         "merged_duplicates": max(0, merged),

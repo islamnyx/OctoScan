@@ -151,15 +151,25 @@
 
     let job = null;
     let activeSev = "hide-info";
+    let activeScope = "all";
     const filtersEl = document.getElementById("filters");
     filtersEl.innerHTML = `<button class="fbtn active" data-sev="hide-info">Hide info</button>`
       + `<button class="fbtn" data-sev="all">All</button>`
-      + filtersEl.innerHTML;
+      + filtersEl.innerHTML
+      + `<span style="margin-left:10px;"></span><button class="fbtn scope active" data-scope="all">All scopes</button>`
+      + `<button class="fbtn scope" data-scope="runtime">Runtime</button>`
+      + `<button class="fbtn scope" data-scope="dev">Dev-only</button>`;
     filtersEl.querySelectorAll(".fbtn").forEach(b => {
       b.addEventListener("click", () => {
-        filtersEl.querySelectorAll(".fbtn").forEach(x => x.classList.remove("active"));
-        b.classList.add("active");
-        activeSev = b.dataset.sev;
+        if (b.dataset.scope !== undefined) {
+          filtersEl.querySelectorAll(".fbtn.scope").forEach(x => x.classList.remove("active"));
+          b.classList.add("active");
+          activeScope = b.dataset.scope;
+        } else {
+          filtersEl.querySelectorAll(".fbtn:not(.scope)").forEach(x => x.classList.remove("active"));
+          b.classList.add("active");
+          activeSev = b.dataset.sev;
+        }
         if (job) render(job);
       });
     });
@@ -218,6 +228,7 @@
         .map(k => `<span class="pill ${k}">${k}<b>${counts[k]}</b></span>`).join("")
         + ((j.summary && j.summary.merged_duplicates) ? `<span class="pill info" title="Duplicate findings collapsed by dedup">×${j.summary.merged_duplicates} merged</span>` : "")
         + ((j.summary && j.summary.findings_with_secrets) ? `<span class="pill high" title="Findings involving hardcoded secrets/keys">secrets ${j.summary.findings_with_secrets}</span>` : "")
+        + ((j.summary && j.summary.dev_only_findings) ? `<span class="pill info" title="Findings in dev-only dependencies (test/build tooling)">dev-only ${j.summary.dev_only_findings}</span>` : "")
         + `<span class="summary-actions" style="margin-left:auto; display:flex; gap:8px;"></span>`;
       const actions = countsEl.querySelector(".summary-actions");
       const mkBtn = (label, primary, fn) => {
@@ -284,6 +295,9 @@
       const visible = (j.findings || []).filter(f => {
         if (activeSev === "hide-info" && f.severity === "info") return false;
         if (activeSev !== "all" && activeSev !== "hide-info" && f.severity !== activeSev) return false;
+        const scope = ((f.raw || {}).scope) || "runtime";
+        if (activeScope === "runtime" && scope === "dev") return false;
+        if (activeScope === "dev" && scope !== "dev") return false;
         return true;
       });
       const manifests = visible.filter(f => f.scanner === "ai-code-review" && (f.title || "").indexOf("AI review manifest") === 0);
@@ -331,6 +345,7 @@
           if (f.cvss !== null && f.cvss !== undefined) metaBits.push("CVSS " + esc(String(f.cvss)));
           (f.cwe || []).forEach(c => metaBits.push(esc(c)));
           (f.owasp || []).forEach(o => metaBits.push(esc(o)));
+          if (raw.scope && raw.scope !== "runtime") metaBits.push("scope: " + esc(raw.scope));
           const meta = metaBits.length ? `<div class="f-meta">${metaBits.join(" · ")}</div>` : "";
           tr.innerHTML = `<td><span class="sev ${f.severity}">${f.severity}</span></td>`
             + `<td><span class="f-title">${esc(f.title)}</span>${merged}${meta}`
