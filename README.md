@@ -169,7 +169,10 @@ app/
     └── fonts/            # Space Grotesk + JetBrains Mono (self-hosted, CSP-safe)
 semgrep-rules/            # Custom logic-flaw rules (NoSQLi/IDOR/redirect/SSRF/XSS)
 data/scans/ data/repos/   # Results + clones (gitignored)
-
+scan_toolkit/          # Mobile app security assessment toolkit (CLI, local-first)
+                       # — Phase 1 scaffold: ORM models + CLI stubs. See scan_toolkit/README.md.
+tests/                 # pytest suite
+data/                  # Local data — DB + per-engagement artifacts (gitignored)
 ```
 
 ## Known limits (honest)

@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .env
 .venv/
+
+data/
 data/scans/
 data/repos/
 data/ai_config.json
@@ -11,9 +13,12 @@ data/agent/
 .kilo/
 resources/
 .claude/
+.cluade/
 CLAUDE.md
 logs/
 node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
 *.tsbuildinfo
+.pytest_cache/
+*.db
