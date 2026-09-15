@@ -5,78 +5,264 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Security Precheck</title>
   <style>
-    :root { --bg:#0f1419; --card:#1a2332; --text:#e7ecf3; --muted:#8b9bb4; --accent:#3d9cf0; --crit:#e5484d; --high:#f5a524; --med:#f5d90a; --low:#30a46c; --info:#8b9bb4; }
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #dfe4ea;
+      --border-strong: #c9d1db;
+      --text: #1a2330;
+      --muted: #5d6b7d;
+      --faint: #8a97a8;
+      --accent: #1f6feb;
+      --accent-dark: #1a5fd0;
+      --accent-soft: #e8f0fe;
+      --ok: #067647; --ok-bg: #e7f6ee;
+      --err: #b42318; --err-bg: #fdeceb;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --radius: 10px;
+    }
     * { box-sizing: border-box; }
-    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:24px 32px; border-bottom:1px solid #243044; }
-    h1 { margin:0 0 4px; font-size:22px; }
-    p.sub { margin:0; color:var(--muted); }
-    main { padding:24px 32px; max-width:1100px; }
-    form { display:flex; gap:8px; margin-bottom:24px; }
-    input { flex:1; padding:10px 12px; border-radius:8px; border:1px solid #2c3c55; background:#121a24; color:var(--text); }
-    button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; }
-    button:disabled { opacity:0.6; cursor:not-allowed; }
-    .counts { display:flex; gap:12px; margin:16px 0; flex-wrap:wrap; }
-    .chip { padding:6px 10px; border-radius:999px; background:var(--card); font-size:13px; }
-    .status { color:var(--muted); margin-bottom:12px; }
-    .status.error { color:var(--crit); }
-    .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; margin-right:8px; }
-    @keyframes spin { to { transform:rotate(360deg); } }
-    table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; }
-    th, td { text-align:left; padding:10px 12px; border-bottom:1px solid #243044; vertical-align:top; }
-    th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-    .sev { font-weight:700; text-transform:uppercase; font-size:12px; }
-    .critical { color:var(--crit); } .high { color:var(--high); } .medium { color:var(--med); } .low { color:var(--low); } .info { color:var(--info); }
-    .scanner-section { margin-bottom:24px; }
-    .scanner-header { padding:10px 12px; background:#121a24; border:1px solid #243044; border-radius:8px; margin-bottom:8px; font-weight:600; cursor:pointer; display:flex; justify-content:space-between; }
-    .scanner-header:hover { background:#1a2332; }
-    .scanner-body { display:none; }
-    .scanner-body.open { display:block; }
-    .meta { color:var(--muted); font-size:12px; margin-top:4px; }
-    .filters { display:flex; gap:8px; align-items:center; margin:12px 0; flex-wrap:wrap; }
-    .fbtn { padding:6px 12px; border-radius:999px; border:1px solid #2c3c55; background:#121a24; color:var(--muted); font-size:12px; cursor:pointer; }
-    .fbtn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-    .search { max-width:260px; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#2c3c55; color:var(--text); font-size:11px; margin-left:8px; vertical-align:middle; }
-    .urls { margin:6px 0 0; padding-left:16px; color:var(--muted); font-size:12px; }
-    .ev { color:var(--muted); font-size:12px; margin-top:4px; word-break:break-all; }
+    body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar-inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+    .brand-tag { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; background: var(--surface-2); }
+    .health { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .health .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+    .health.on .dot { background: var(--ok); }
+    .health.on { color: var(--ok); }
+    .apikey { width: 190px; }
+    main { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
+    section { margin-bottom: 28px; }
+    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; }
+    .section-sub { font-size: 12.5px; color: var(--faint); margin: 0 0 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding: 8px 12px 0; background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+    .tab { appearance: none; border: 0; background: none; padding: 10px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tabpane { display: none; padding: 20px; }
+    .tabpane.active { display: block; }
+    .field-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 180px; }
+    .field.fixed { flex: 0 1 170px; min-width: 140px; }
+    .field label { font-size: 12px; font-weight: 600; color: var(--muted); }
+    .field .note { font-size: 12px; color: var(--faint); font-weight: 400; }
+    input[type="url"], input[type="text"], input[type="password"] {
+      font: inherit; font-size: 13.5px; color: var(--text);
+      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; width: 100%;
+    }
+    input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input::placeholder { color: var(--faint); }
+    select {
+      font: inherit; font-size: 13.5px; color: var(--text);
+      padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; width: 100%;
+    }
+    .actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+    .btn { appearance: none; border: 1px solid transparent; border-radius: 8px; padding: 9px 18px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; }
+    .btn:hover { background: var(--accent-dark); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn.secondary { background: #fff; border-color: var(--border-strong); color: var(--text); }
+    .btn.secondary:hover { background: var(--surface-2); }
+    .checkline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+    .checkline input { width: 15px; height: 15px; accent-color: var(--accent); }
+    .formhint { font-size: 12.5px; color: var(--faint); margin: 10px 0 0; }
+    .banner { display: none; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-top: 14px; border: 1px solid; }
+    .banner.show { display: block; }
+    .banner.error { background: var(--err-bg); border-color: #f3c2bd; color: #8f1d14; }
+    .hist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 860px) { .hist-grid { grid-template-columns: 1fr; } }
+    .hist-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .hist-card h3 { margin: 0; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+    table.hist { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.prov { width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    table.prov td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    table.prov tr:last-child td { border-bottom: 0; }
+    .prov-name { font-weight: 700; }
+    .prov-meta { color: var(--muted); font-size: 12px; }
+    .prov-actions { text-align: right; white-space: nowrap; }
+    .prov-actions button { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border-strong); background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; margin-left: 5px; }
+    .prov-actions button:hover { background: var(--surface-2); }
+    .prov-actions button.danger { color: var(--err); border-color: #f3c2bd; }
+    .active-badge { font-size: 10.5px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 5px; padding: 1px 7px; margin-left: 6px; }
+    table.hist td { padding: 9px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    table.hist tr:last-child td { border-bottom: 0; }
+    table.hist tbody tr { cursor: pointer; }
+    table.hist tbody tr:hover { background: #fafbfc; }
+    .hist-target { font-weight: 600; word-break: break-all; }
+    .hist-meta { color: var(--muted); font-size: 12px; white-space: nowrap; text-align: right; }
+    .st { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; margin-left: 8px; white-space: nowrap; }
+    .st.completed { background: var(--ok-bg); color: var(--ok); }
+    .st.failed { background: var(--err-bg); color: var(--err); }
+    .st.running, .st.queued { background: var(--accent-soft); color: #14489b; }
+    .st.paused { background: #fef3e6; color: #b54708; }
+    .empty { padding: 14px 16px; color: var(--faint); font-size: 12.5px; }
+    .ai-badge { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 2px 7px; margin-left: 6px; }
+    footer { max-width: 1120px; margin: 0 auto; padding: 0 24px 32px; color: var(--faint); font-size: 12px; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Security Precheck</h1>
-    <p class="sub">Pre-launch scan for web apps — Nmap, OWASP ZAP, testssl.sh, security headers, Nikto</p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2l7.5 3v6c0 4.6-3.2 8.4-7.5 10-4.3-1.6-7.5-5.4-7.5-10V5L12 2z" fill="#1f6feb"/>
+          <path d="M8.5 12l2.4 2.4L15.7 9.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-name">Security Precheck</span>
+        <span class="brand-tag">MVP</span>
+      </div>
+      <span class="health" id="health-pill"><span class="dot"></span><span id="health-text">connecting…</span></span>
+      <input id="api-key" class="apikey" type="password" placeholder="API key" autocomplete="off" aria-label="API key" />
+    </div>
   </header>
+
   <main>
-    <form id="scan-form">
-      <input id="url" type="url" placeholder="https://example.com" required />
-      <input id="api-key" type="password" placeholder="API key (if required)" autocomplete="off" style="max-width:200px;" />
-      <button type="submit" id="submit-btn">Start scan</button>
-    </form>
-    <div id="status" class="status"></div>
-    <div id="counts" class="counts"></div>
-    <div class="filters" id="filters" style="display:none;">
-      <button class="fbtn active" data-sev="hide-info">Hide info</button>
-      <button class="fbtn" data-sev="all">All</button>
-      <button class="fbtn" data-sev="critical">Critical</button>
-      <button class="fbtn" data-sev="high">High</button>
-      <button class="fbtn" data-sev="medium">Medium</button>
-      <button class="fbtn" data-sev="low">Low</button>
-      <button class="fbtn" data-sev="info">Info</button>
-      <input id="q" class="search" type="search" placeholder="Filter by text…" />
-    </div>
-    <div id="results"></div>
-    <div id="history-section" style="margin-top:32px;">
-      <h2 style="font-size:16px; margin:0 0 12px; color:var(--muted);">Recent scans</h2>
-      <div id="history"></div>
-    </div>
+    <section aria-label="Start a scan">
+      <h2 class="section-title">New scan</h2>
+      <div class="panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="pane-web" role="tab">Web application</button>
+          <button class="tab" data-tab="pane-repo" role="tab">Codebase</button>
+          <button class="tab" data-tab="pane-ai" role="tab">AI provider</button>
+        </div>
+
+        <div class="tabpane active" id="pane-web">
+          <form id="scan-form">
+            <div class="field-row">
+              <div class="field">
+                <label for="url">Target URL</label>
+                <input id="url" type="url" placeholder="https://example.com" required />
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit" id="submit-btn" class="btn">Run security scan</button>
+            </div>
+            <p class="formhint">Opens the scan's live status page. Pause or finish it there at any time.</p>
+          </form>
+        </div>
+
+        <div class="tabpane" id="pane-repo">
+          <form id="repo-form">
+            <div class="field-row">
+              <div class="field">
+                <label for="repo-url">Repository URL</label>
+                <input id="repo-url" type="url" placeholder="https://github.com/org/repo" required />
+              </div>
+              <div class="field fixed">
+                <label for="repo-branch">Branch</label>
+                <input id="repo-branch" type="text" placeholder="default" />
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit" id="repo-btn" class="btn">Scan codebase</button>
+              <label class="checkline"><input id="repo-ai" type="checkbox" /> AI reads the code too</label>
+            </div>
+            <div id="repo-ai-models" style="display:none; margin-top:12px;">
+              <div class="field" style="max-width:420px;">
+                <label for="repo-ai-model">AI model for this scan</label>
+                <select id="repo-ai-model"><option value="">loading…</option></select>
+                <span class="note" id="repo-ai-model-note"></span>
+              </div>
+            </div>
+            <p class="formhint">Shallow-clones the repo and runs secret + SAST scans. Code is never executed.</p>
+          </form>
+          <div id="repo-status" class="banner" role="status"></div>
+        </div>
+
+        <div class="tabpane" id="pane-ai">
+          <h3 class="section-title" style="margin-bottom:8px;">Connected providers <span id="ai-status" role="status" style="text-transform:none;letter-spacing:0;font-weight:600;margin-left:8px;"></span></h3>
+          <table class="prov"><tbody id="provider-list"></tbody></table>
+          <p class="formhint" id="provider-hint" style="margin:6px 0 0;"></p>
+
+          <h3 class="section-title" style="margin:18px 0 8px;" id="prov-form-title">Add a provider</h3>
+          <div class="field-row">
+            <div class="field fixed">
+              <label for="prov-type">Type</label>
+              <select id="prov-type">
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="groq">Groq</option>
+                <option value="together">Together</option>
+                <option value="ollama">Ollama (local)</option>
+                <option value="lmstudio">LM Studio (local)</option>
+                <option value="custom">Custom endpoint</option>
+              </select>
+            </div>
+            <div class="field fixed">
+              <label for="prov-name">Name <span class="note">(your choice)</span></label>
+              <input id="prov-name" type="text" placeholder="e.g. groq-work" />
+            </div>
+            <div class="field">
+              <label for="prov-base">Base URL</label>
+              <input id="prov-base" type="url" placeholder="https://api.groq.com/openai/v1" />
+            </div>
+          </div>
+          <div class="field-row" style="margin-top:10px;">
+            <div class="field">
+              <label for="prov-key">API key <span class="note">(leave blank to keep existing)</span></label>
+              <input id="prov-key" type="password" placeholder="••••••••" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="prov-model">Model <button type="button" id="prov-models-reload" style="font:inherit;font-size:11px;border:0;background:none;color:var(--accent);cursor:pointer;padding:0;">↻ load models</button></label>
+              <select id="prov-model"><option value="">— load models —</option></select>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="prov-save" class="btn" type="button">Save provider</button>
+            <button id="prov-cancel" class="btn secondary" type="button" style="display:none;">Cancel edit</button>
+            <button id="prov-test" class="btn secondary" type="button">Test this provider</button>
+            <span id="prov-status" role="status"></span>
+          </div>
+          <p class="formhint">Code excerpts are sent to the active provider. Use Ollama or LM Studio to keep everything on this machine.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="History">
+      <h2 class="section-title">History</h2>
+      <p class="section-sub">Running scans open their live status page; finished ones open their result page.</p>
+      <div class="hist-grid">
+        <div class="hist-card">
+          <h3>Web scans</h3>
+          <table class="hist"><tbody id="history"></tbody></table>
+        </div>
+        <div class="hist-card">
+          <h3>Codebase scans</h3>
+          <table class="hist"><tbody id="repo-history"></tbody></table>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer>Security Precheck · pre-launch checks for web apps and codebases · findings are advisory, verify before acting</footer>
+
   <script>
+    document.querySelectorAll(".tab").forEach(t => {
+      t.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+        document.querySelectorAll(".tabpane").forEach(x => x.classList.remove("active"));
+        t.classList.add("active");
+        document.getElementById(t.dataset.tab).classList.add("active");
+      });
+    });
+    async function checkHealth() {
+      const pill = document.getElementById("health-pill");
+      const txt = document.getElementById("health-text");
+      try {
+        const res = await fetch("/health");
+        if (!res.ok) throw new Error();
+        pill.classList.add("on");
+        txt.textContent = "API online";
+      } catch (e) {
+        txt.textContent = "API unreachable";
+      }
+    }
+    checkHealth();
+
     const form = document.getElementById("scan-form");
-    const statusEl = document.getElementById("status");
-    const countsEl = document.getElementById("counts");
-    const resultsEl = document.getElementById("results");
-    const historyEl = document.getElementById("history");
     const submitBtn = document.getElementById("submit-btn");
     const apiKeyInput = document.getElementById("api-key");
     apiKeyInput.value = localStorage.getItem("apiKey") || "";
@@ -89,208 +275,328 @@
       if (k) h["X-API-Key"] = k;
       return h;
     }
-    let poll;
-    let currentJob = null;
-    let activeSev = "hide-info";
-    let query = "";
-    const filtersEl = document.getElementById("filters");
-    const qInput = document.getElementById("q");
-    filtersEl.querySelectorAll(".fbtn").forEach(b => {
-      b.addEventListener("click", () => {
-        filtersEl.querySelectorAll(".fbtn").forEach(x => x.classList.remove("active"));
-        b.classList.add("active");
-        activeSev = b.dataset.sev;
-        if (currentJob) render(currentJob);
-      });
-    });
-    qInput.addEventListener("input", () => {
-      query = qInput.value.trim().toLowerCase();
-      if (currentJob) render(currentJob);
-    });
-
-    async function loadHistory() {
-      const res = await fetch("/api/scans");
-      if (!res.ok) return;
-      const jobs = await res.json();
-      if (!jobs.length) {
-        historyEl.innerHTML = '<p style="color:var(--muted); font-size:13px;">No scans yet.</p>';
-        return;
-      }
-      historyEl.innerHTML = jobs.slice(0, 10).map(j => `
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:var(--card); border-radius:8px; margin-bottom:6px; cursor:pointer;" onclick="viewScan('${j.id}')">
-          <div>
-            <strong>${escapeHtml(j.target_url)}</strong>
-            <span class="sev ${j.status}" style="margin-left:8px;">${j.status}</span>
-          </div>
-          <div style="color:var(--muted); font-size:12px;">
-            ${j.findings.length} findings · ${new Date(j.created_at).toLocaleString()}
-          </div>
-        </div>
-      `).join("");
+    function setBanner(el, kind, html) {
+      el.className = "banner" + (kind ? " show " + kind : "");
+      el.innerHTML = html || "";
+    }
+    function escapeHtml(s) {
+      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
-    window.viewScan = async function(id) {
-      const res = await fetch("/api/scans/" + id);
-      if (!res.ok) return;
-      const job = await res.json();
-      currentJob = job;
-      statusEl.textContent = `Scan ${job.id} — ${job.status}` + (job.error ? ` (${job.error})` : "");
-      render(job);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    };
+    const historyEl = document.getElementById("history");
+    const repoHistoryEl = document.getElementById("repo-history");
+    const repoForm = document.getElementById("repo-form");
+    const repoBtn = document.getElementById("repo-btn");
+    const repoStatusEl = document.getElementById("repo-status");
 
+    function pageFor(kind, j) {
+      const running = j.status === "running" || j.status === "queued" || j.status === "paused";
+      const base = kind === "repo" ? "/repos/" : "/scans/";
+      return base + j.id + (running ? "/status" : "");
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await fetch("/api/scans", { headers: apiHeaders() });
+        if (res.ok) {
+          const jobs = await res.json();
+          historyEl.innerHTML = jobs.length ? jobs.slice(0, 10).map(j =>
+            `<tr onclick="location.href='${pageFor("scan", j)}'"><td>`
+            + `<div><span class="hist-target">${escapeHtml(j.target_url)}</span><span class="st ${j.status}">${escapeHtml(j.status)}</span></div>`
+            + `<div class="hist-meta">${j.findings.length} findings · ${new Date(j.created_at).toLocaleString()}</div>`
+            + `</td></tr>`
+          ).join("") : `<tr><td class="empty">No web scans yet.</td></tr>`;
+        }
+      } catch (e) { console.error("history error", e); }
+      try {
+        const res = await fetch("/api/repo-scans", { headers: apiHeaders() });
+        if (res.ok) {
+          const jobs = await res.json();
+          repoHistoryEl.innerHTML = jobs.length ? jobs.slice(0, 10).map(j =>
+            `<tr onclick="location.href='${pageFor("repo", j)}'"><td>`
+            + `<div><span class="hist-target">${escapeHtml(j.repo_url)}</span><span class="st ${j.status}">${escapeHtml(j.status)}</span>${j.ai ? '<span class="ai-badge">AI</span>' : ""}</div>`
+            + `<div class="hist-meta">${j.findings.length} findings · ${j.files_scanned || 0} files · ${new Date(j.created_at).toLocaleString()}</div>`
+            + `</td></tr>`
+          ).join("") : `<tr><td class="empty">No codebase scans yet.</td></tr>`;
+        }
+      } catch (e) { console.error("repo history error", e); }
+    }
     loadHistory();
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const target_url = document.getElementById("url").value.trim();
       if (!target_url) return;
-      statusEl.textContent = "";
-      statusEl.classList.remove("error");
-      countsEl.innerHTML = "";
-      resultsEl.innerHTML = "";
       submitBtn.disabled = true;
-      const res = await fetch("/api/scans", {
-        method: "POST",
-        headers: apiHeaders(),
-        body: JSON.stringify({ target_url })
-      });
-      if (res.status === 403) {
-        statusEl.textContent = "Invalid API key — check the API key field";
-        statusEl.classList.add("error");
+      try {
+        const res = await fetch("/api/scans", {
+          method: "POST",
+          headers: apiHeaders(),
+          body: JSON.stringify({ target_url })
+        });
+        if (!res.ok) {
+          alert("Could not start the scan: " + (await res.text()).slice(0, 200));
+          submitBtn.disabled = false;
+          return;
+        }
+        const job = await res.json();
+        location.href = `/scans/${job.id}/status`;
+      } catch (err) {
+        alert("Could not start the scan: connection error.");
         submitBtn.disabled = false;
-        return;
       }
-      if (!res.ok) {
-        statusEl.textContent = "Failed to start scan";
-        statusEl.classList.add("error");
-        submitBtn.disabled = false;
-        return;
-      }
-      const job = await res.json();
-      currentJob = job;
-      statusEl.innerHTML = `<span class="spinner"></span>Scanning ${escapeHtml(target_url)}...`;
-      pollJob(job.id);
     });
 
-    async function pollJob(id) {
-      clearInterval(poll);
-      const tick = async () => {
-        try {
-          const res = await fetch("/api/scans/" + id);
-          if (!res.ok) return;
-          const job = await res.json();
-          currentJob = job;
-          if (job.status === "running") {
-            statusEl.innerHTML = `<span class="spinner"></span>Scanning — ${job.scanners_run.length} scanner(s) done`;
-          } else if (job.status === "completed") {
-            clearInterval(poll);
-            statusEl.textContent = `Scan completed — ${new Date(job.finished_at).toLocaleTimeString()}`;
-            submitBtn.disabled = false;
-            render(job);
-          } else if (job.status === "failed") {
-            clearInterval(poll);
-            statusEl.textContent = `Scan failed: ${job.error || "unknown error"}`;
-            statusEl.classList.add("error");
-            submitBtn.disabled = false;
-          } else if (job.status === "queued") {
-            statusEl.textContent = "Queued...";
-          }
-        } catch (err) {
-          console.error("poll error", err);
-        }
-      };
-      await tick();
-      poll = setInterval(tick, 2500);
-    }
-
-    function render(job) {
-      filtersEl.style.display = "flex";
-      const counts = {critical:0,high:0,medium:0,low:0,info:0};
-      const byScanner = {};
-      const q = query;
-      const visible = job.findings.filter(f => {
-        if (activeSev === "hide-info" && f.severity === "info") return false;
-        if (activeSev !== "all" && activeSev !== "hide-info" && f.severity !== activeSev) return false;
-        if (q && !((f.title || "") + " " + (f.description || "") + " " + (f.location || "")).toLowerCase().includes(q)) return false;
-        return true;
-      });
-      job.findings.forEach(f => {
-        counts[f.severity] = (counts[f.severity] || 0) + 1;
-      });
-      visible.forEach(f => {
-        if (!byScanner[f.scanner]) byScanner[f.scanner] = [];
-        byScanner[f.scanner].push(f);
-      });
-      countsEl.innerHTML = Object.entries(counts).map(([k,v]) => `<span class="chip ${k}">${k}: ${v}</span>`).join("");
-      const exportBtn = document.createElement("button");
-      exportBtn.textContent = "Export JSON";
-      exportBtn.style.marginLeft = "8px";
-      exportBtn.style.padding = "6px 12px";
-      exportBtn.style.fontSize = "12px";
-      exportBtn.addEventListener("click", () => {
-        const a = document.createElement("a");
-        a.href = `/api/scans/${job.id}/export`;
-        a.download = `scan-${job.id}.json`;
-        a.click();
-      });
-      const reportBtn = document.createElement("button");
-      reportBtn.textContent = "View Report";
-      reportBtn.style.marginLeft = "8px";
-      reportBtn.style.padding = "6px 12px";
-      reportBtn.style.fontSize = "12px";
-      reportBtn.addEventListener("click", () => {
-        window.open(`/api/scans/${job.id}/report`, "_blank");
-      });
-      countsEl.appendChild(exportBtn);
-      countsEl.appendChild(reportBtn);
-      resultsEl.innerHTML = "";
-      for (const [scanner, findings] of Object.entries(byScanner)) {
-        const section = document.createElement("div");
-        section.className = "scanner-section";
-        const header = document.createElement("div");
-        header.className = "scanner-header";
-        header.innerHTML = `<span>${escapeHtml(scanner)} (${findings.length})</span><span>▼</span>`;
-        header.addEventListener("click", () => {
-          body.classList.toggle("open");
-          header.querySelector("span:last-child").textContent = body.classList.contains("open") ? "▲" : "▼";
-        });
-        const body = document.createElement("div");
-        body.className = "scanner-body open";
-        const table = document.createElement("table");
-        table.innerHTML = `<thead><tr><th>Severity</th><th>Finding</th><th>Location</th><th>Fix</th></tr></thead>`;
-        const tbody = document.createElement("tbody");
-        findings.forEach(f => {
-          const tr = document.createElement("tr");
-          const raw = f.raw || {};
-          const merged = raw.merged_count > 1
-            ? `<span class="badge" title="${escapeHtml((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged · ${escapeHtml((raw.merged_sources || []).join("+"))}</span>`
-            : "";
-          const urlList = raw.affected_urls || [];
-          const urls = urlList.length > 1
-            ? `<details><summary style="cursor:pointer;">affects ${urlList.length} URLs — showing ${Math.min(5, urlList.length)}</summary><ul class="urls">${urlList.slice(0, 5).map(u => `<li>${escapeHtml(u)}</li>`).join("")}${urlList.length > 5 ? `<li>… and ${urlList.length - 5} more (full list in JSON export)</li>` : ""}</ul></details>`
-            : "";
-          const ev = f.evidence ? `<div class="ev">Evidence: ${escapeHtml(f.evidence).slice(0, 300)}</div>` : "";
-          const cve = f.cve ? `<div class="ev">${escapeHtml(f.cve)}</div>` : "";
-          tr.innerHTML = `
-            <td class="sev ${f.severity}">${f.severity}</td>
-            <td><strong>${escapeHtml(f.title)}</strong>${merged}<br><span class="meta">${escapeHtml(f.description).slice(0,280)}</span>${ev}${cve}</td>
-            <td>${escapeHtml(f.location)}${urls}</td>
-            <td>${escapeHtml(f.recommendation)}</td>
-          `;
-          tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        body.appendChild(table);
-        section.appendChild(header);
-        section.appendChild(body);
-        resultsEl.appendChild(section);
+    repoForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const repo_url = document.getElementById("repo-url").value.trim();
+      const branch = document.getElementById("repo-branch").value.trim() || null;
+      const include_ai = document.getElementById("repo-ai").checked;
+      const ai_model = include_ai ? (document.getElementById("repo-ai-model").value || null) : null;
+      if (!repo_url) return;
+      if (include_ai && !ai_model) {
+        setBanner(repoStatusEl, "error", "Pick an AI model for this scan (or connect a provider in the AI provider tab).");
+        return;
       }
+      setBanner(repoStatusEl, "", "");
+      repoBtn.disabled = true;
+      try {
+        const res = await fetch("/api/repo-scans", {
+          method: "POST", headers: apiHeaders(),
+          body: JSON.stringify({ repo_url, branch, include_ai, ai_model })
+        });
+        if (!res.ok) {
+          setBanner(repoStatusEl, "error", `Could not start the scan: ${escapeHtml((await res.text()).slice(0, 250))}`);
+          repoBtn.disabled = false;
+          return;
+        }
+        const job = await res.json();
+        location.href = `/repos/${job.id}/status`;
+      } catch (err) {
+        setBanner(repoStatusEl, "error", "Could not start the scan: connection error.");
+        repoBtn.disabled = false;
+      }
+    });
+
+    const repoAiBox = document.getElementById("repo-ai-models");
+    const repoAiModel = document.getElementById("repo-ai-model");
+    const repoAiNote = document.getElementById("repo-ai-model-note");
+    const repoAiCheck = document.getElementById("repo-ai");
+    repoAiCheck.addEventListener("change", async () => {
+      if (!repoAiCheck.checked) { repoAiBox.style.display = "none"; return; }
+      repoAiBox.style.display = "";
+      repoAiModel.innerHTML = `<option value="">loading…</option>`;
+      try {
+        const cfgRes = await fetch("/api/ai/config", { headers: apiHeaders() });
+        const cfg = cfgRes.ok ? await cfgRes.json() : { configured: false };
+        if (!cfg.configured) {
+          repoAiModel.innerHTML = `<option value="">no provider connected</option>`;
+          repoAiNote.innerHTML = `No AI provider connected yet — set one up in the <a href="#" onclick="document.querySelector('[data-tab=pane-ai]').click(); return false;">AI provider tab</a>.`;
+          return;
+        }
+        const res = await fetch("/api/ai/models", { method: "POST", headers: apiHeaders(), body: "{}" });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 140));
+        const data = await res.json();
+        const entries = data.entries || (data.models || []).map(m => ({ id: m, owner: "" }));
+        repoAiModel.innerHTML = entries.length
+          ? modelOptions(entries, data.provider || cfg.provider)
+          : `<option value="">provider returned no models</option>`;
+        if (cfg.model && entries.some(e => e.id === cfg.model)) repoAiModel.value = cfg.model;
+        repoAiNote.textContent = `Models from ${(cfg.provider || "configured provider")} · saved default preselected.`;
+      } catch (e) {
+        repoAiModel.innerHTML = `<option value="">could not load models</option>`;
+        repoAiNote.textContent = `Model list failed: ${e.message}`;
+      }
+    });
+
+    const PRESETS = {
+      openai: "https://api.openai.com/v1",
+      openrouter: "https://openrouter.ai/api/v1",
+      groq: "https://api.groq.com/openai/v1",
+      together: "https://api.together.xyz/v1",
+      ollama: "http://localhost:11434/v1",
+      lmstudio: "http://localhost:1234/v1",
+      custom: ""
+    };
+
+    function modelLabel(id, owner, provider) {
+      // "openai/gpt-oss-20b (by OpenAI · via Groq)"
+      let label = id;
+      const bits = [];
+      if (owner && owner.toLowerCase() !== id.split("/")[0].toLowerCase()) bits.push("by " + owner);
+      if (provider) bits.push("via " + provider);
+      if (bits.length) label += " (" + bits.join(" · ") + ")";
+      return label;
+    }
+    function modelOptions(entries, provider) {
+      return entries.map(e =>
+        `<option value="${escapeHtml(e.id)}">${escapeHtml(modelLabel(e.id, e.owner, provider))}</option>`
+      ).join("") + `<option value="__custom__">Custom model…</option>`;
+    }
+    function modelEntriesFrom(data) {
+      return data.entries || (data.models || []).map(m => ({ id: m, owner: "" }));
     }
 
-    function escapeHtml(s) {
-      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    // ---- Provider manager (AI provider tab) ----
+    const aiStatus = document.getElementById("ai-status");
+    const provList = document.getElementById("provider-list");
+    const provType = document.getElementById("prov-type");
+    const provName = document.getElementById("prov-name");
+    const provBase = document.getElementById("prov-base");
+    const provKey = document.getElementById("prov-key");
+    const provModel = document.getElementById("prov-model");
+    const provStatus = document.getElementById("prov-status");
+    const provFormTitle = document.getElementById("prov-form-title");
+    const provCancel = document.getElementById("prov-cancel");
+    let editingName = null;
+    let provEntries = [];
+
+    function setProvMsg(msg, ok) {
+      provStatus.textContent = msg || "";
+      provStatus.style.color = ok === undefined ? "inherit" : ok ? "var(--ok)" : "var(--err)";
+      provStatus.style.fontSize = "12.5px";
     }
+    provType.addEventListener("change", () => {
+      const p = PRESETS[provType.value];
+      if (p !== undefined && (provBase.value.trim() === "" || Object.values(PRESETS).includes(provBase.value.trim()))) {
+        provBase.value = p;
+      }
+      if (!editingName) provName.value = provType.value;
+    });
+    document.getElementById("prov-models-reload").addEventListener("click", async () => {
+      const base = provBase.value.trim();
+      if (!base) { setProvMsg("Set a base URL first.", false); return; }
+      provModel.innerHTML = `<option value="">loading…</option>`;
+      try {
+        const res = await fetch("/api/ai/models", {
+          method: "POST", headers: apiHeaders(),
+          body: JSON.stringify({ provider: provType.value, base_url: base, api_key: provKey.value })
+        });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 140));
+        const data = await res.json();
+        const entries = modelEntriesFrom(data);
+        provModel.innerHTML = entries.length ? modelOptions(entries, data.provider) : `<option value="">no models</option>`;
+        setProvMsg(`Loaded ${entries.length} model(s).`, true);
+      } catch (e) {
+        provModel.innerHTML = `<option value="">could not load</option>`;
+        setProvMsg(`Model list failed: ${e.message}`, false);
+      }
+    });
+    document.getElementById("prov-test").addEventListener("click", async () => {
+      setProvMsg("Testing…");
+      try {
+        const body = editingName
+          ? { name: editingName }
+          : { provider: provType.value, base_url: provBase.value.trim(), api_key: provKey.value, model: provModel.value };
+        const res = await fetch("/api/ai/test", { method: "POST", headers: apiHeaders(), body: JSON.stringify(body) });
+        setProvMsg(res.ok ? "Connection works." : `Test failed: ${(await res.text()).slice(0, 160)}`, res.ok);
+      } catch (e) { setProvMsg("Test failed: connection error.", false); }
+    });
+    provCancel.addEventListener("click", () => {
+      editingName = null;
+      provFormTitle.textContent = "Add a provider";
+      provCancel.style.display = "none";
+      provName.value = provType.value;
+      provBase.value = PRESETS[provType.value] || "";
+      provKey.value = "";
+      provModel.innerHTML = `<option value="">— load models —</option>`;
+      setProvMsg("");
+    });
+    document.getElementById("prov-save").addEventListener("click", async () => {
+      const name = provName.value.trim();
+      if (!name) { setProvMsg("Give this provider a name.", false); return; }
+      if (!provBase.value.trim()) { setProvMsg("Base URL is required.", false); return; }
+      const model = provModel.value === "__custom__" ? "" : provModel.value;
+      if (!model) { setProvMsg("Pick a model (↻ load models).", false); return; }
+      setProvMsg("Saving…");
+      try {
+        const res = await fetch("/api/ai/providers", {
+          method: "POST", headers: apiHeaders(),
+          body: JSON.stringify({
+            name, provider: provType.value, base_url: provBase.value.trim(),
+            api_key: provKey.value, model, activate: true
+          })
+        });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 160));
+        setProvMsg(`Provider "${name}" saved and set active.`, true);
+        editingName = null;
+        provFormTitle.textContent = "Add a provider";
+        provCancel.style.display = "none";
+        provKey.value = "";
+        await loadProviders();
+      } catch (e) { setProvMsg(`Save failed: ${e.message}`, false); }
+    });
+    async function rowAction(name, action) {
+      try {
+        const res = await fetch(`/api/ai/providers/${encodeURIComponent(name)}/${action}`,
+          { method: action === "delete" ? "DELETE" : "POST", headers: apiHeaders() });
+        if (!res.ok) throw new Error((await res.text()).slice(0, 140));
+        await loadProviders();
+      } catch (e) { setProvMsg(`${action} failed: ${e.message}`, false); }
+    }
+    async function provUse(name) { await rowAction(name, "activate"); }
+    async function provDelete(name) {
+      if (!confirm(`Delete provider "${name}"?`)) return;
+      if (editingName === name) provCancel.click();
+      await rowAction(name, "delete");
+    }
+    async function provEdit(name) {
+      const p = (provEntries || []).find(x => x.name === name);
+      if (!p) return;
+      editingName = name;
+      provFormTitle.textContent = `Edit provider: ${name}`;
+      provCancel.style.display = "";
+      provType.value = PRESETS[p.provider] !== undefined ? p.provider : "custom";
+      provName.value = p.name;
+      provBase.value = p.base_url || "";
+      provKey.value = "";
+      provModel.innerHTML = p.model ? `<option value="${escapeHtml(p.model)}">${escapeHtml(p.model)}</option>` : `<option value="">— load models —</option>`;
+      setProvMsg("Editing — leave the key blank to keep the saved one.");
+    }
+    window.provUse = provUse; window.provEdit = provEdit; window.provDelete = provDelete;
+
+    async function loadProviders() {
+      let data;
+      try {
+        const res = await fetch("/api/ai/providers", { headers: apiHeaders() });
+        if (!res.ok) return;
+        data = await res.json();
+      } catch (e) { return; }
+      provEntries = data.providers || [];
+      if (!provEntries.length) {
+        provList.innerHTML = `<tr><td class="empty">No providers connected yet — add one below.</td></tr>`;
+        return;
+      }
+      provList.innerHTML = provs_map(provEntries);
+    }
+    function provs_map(provs) {
+      return provs.map(p => {
+        const host = (p.base_url || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+        return `<tr>`
+          + `<td><span class="prov-name">${escapeHtml(p.name)}</span>${p.active ? '<span class="active-badge">ACTIVE</span>' : ""}`
+          + `<div class="prov-meta">${escapeHtml(p.provider || "")} · ${escapeHtml(host || "no url")} · model: ${escapeHtml(p.model || "—")} · key: ${p.has_key ? "saved" : "missing"}</div></td>`
+          + `<td class="prov-actions">`
+          + (p.active ? "" : `<button onclick="provUse('${escapeHtml(p.name)}')">Use</button>`)
+          + `<button onclick="provEdit('${escapeHtml(p.name)}')">Edit</button>`
+          + `<button class="danger" onclick="provDelete('${escapeHtml(p.name)}')">Delete</button>`
+          + `</td></tr>`;
+      }).join("");
+    }
+
+    async function loadAI() {
+      try {
+        const res = await fetch("/api/ai/config", { headers: apiHeaders() });
+        if (!res.ok) return;
+        const c = await res.json();
+        aiStatus.textContent = c.configured
+          ? `Active: ${c.name || c.provider} · model ${c.model}${c.has_key ? " · key saved" : " · key missing"}`
+          : "No active provider yet — add one above.";
+        aiStatus.style.color = c.configured ? "var(--ok)" : "var(--faint)";
+        aiStatus.style.fontSize = "12.5px";
+      } catch (e) { /* best-effort */ }
+    }
+    loadProviders();
+    loadAI();
   </script>
 </body>
 </html>

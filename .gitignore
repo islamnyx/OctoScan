@@ -3,6 +3,8 @@ __pycache__/
 .env
 .venv/
 data/scans/
+data/repos/
+data/ai_config.json
 .ZAP/
 .kilo/
 resources/

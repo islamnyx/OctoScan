@@ -87,6 +87,7 @@ class ZapScanner(BaseScanner):
             if r.status_code in (401, 403):
                 raise RuntimeError("ZAP API key rejected (401/403) — check ZAP_API_KEY matches the daemon's api.key")
             r.raise_for_status()
+            self._activity(f"connected to ZAP {r.json().get('version', '')}, resetting session")
             # Fresh session per scan: clears the Sites tree / stale spider
             # results from earlier scans (134-node buildup OOMed the 1GB
             # daemon on 2026-09-13). Best-effort, never fails the scan.
@@ -107,6 +108,7 @@ class ZapScanner(BaseScanner):
             # Also try OpenAPI import (Juice Shop exposes /api-docs) —
             # populates REST routes without AJAX/firefox RAM cost.
             self._seed_targets(client, base, api_key, target)
+            self._activity("spider crawling the target…")
             spider = client.get(
                 f"{base}/JSON/spider/action/scan/",
                 # maxChildren=10 (was 5) widens classic-spider breadth cheaply;
@@ -124,6 +126,7 @@ class ZapScanner(BaseScanner):
             # mid-campaign, spider completed in 0.09s with nothing). Fail
             # loudly here instead of a misleading ascan 400 later.
             found = self._spider_result_count(client, base, api_key, spider_id)
+            self._activity(f"spider finished — {found} URL(s) discovered")
             if found == 0:
                 raise RuntimeError(
                     f"ZAP spider found 0 URLs for {target} — target looks down "
@@ -153,7 +156,8 @@ class ZapScanner(BaseScanner):
             ascan_budget = min(settings.zap_ascan_budget_seconds, max(300, settings.scan_timeout_seconds // 2))
             ascan_deadline = time.time() + ascan_budget
             try:
-                for t in ascan_targets:
+                for i, t in enumerate(ascan_targets, 1):
+                    self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
                     remaining = ascan_deadline - time.time()
                     if remaining < 30:
                         ascan_skipped = (
@@ -194,6 +198,7 @@ class ZapScanner(BaseScanner):
             )
             alerts.raise_for_status()
             data = alerts.json()
+            self._activity(f"collecting alerts ({len(data.get('alerts', []))} raw)")
             coverage = {
                 "classic_spider": True,
                 "ajax_spider": ajax_ok,

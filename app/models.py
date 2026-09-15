@@ -17,6 +17,7 @@ class Severity(str, Enum):
 class ScanStatus(str, Enum):
     queued = "queued"
     running = "running"
+    paused = "paused"
     completed = "completed"
     failed = "failed"
 
@@ -78,3 +79,72 @@ class ScanJob(BaseModel):
         for finding in self.findings:
             counts[finding.severity.value] += 1
         return counts
+
+
+# ---- Phase 2: repo / source scans + BYO AI ----
+
+class RepoScanRequest(BaseModel):
+    repo_url: str = Field(max_length=512)
+    branch: str | None = Field(default=None, max_length=128)
+    include_ai: bool = False
+    # Per-scan model override (dashboard's codebase-tab model picker).
+    # Falls back to the saved AI config model when omitted.
+    ai_model: str | None = Field(default=None, max_length=128)
+
+
+class AIAnalysis(BaseModel):
+    provider: str = ""
+    model: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    summary: str = ""
+    prioritized_fixes: list[str] = Field(default_factory=list)
+    false_positive_notes: str = ""
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class RepoScanJob(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex[:16])
+    repo_url: str
+    branch: str | None = None
+    ai_requested: bool = False
+    status: ScanStatus = ScanStatus.queued
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    scanners_run: list[str] = Field(default_factory=list)
+    findings: list[Finding] = Field(default_factory=list)
+    files_scanned: int = 0
+    ai: AIAnalysis | None = None
+
+    def counts(self) -> dict[str, int]:
+        counts = {s.value: 0 for s in Severity}
+        for finding in self.findings:
+            counts[finding.severity.value] += 1
+        return counts
+
+
+class AIConfigRequest(BaseModel):
+    provider: str = Field(default="", max_length=64)
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=512)
+    model: str = Field(default="", max_length=128)
+    # Provider-profile name (multi-provider support).
+    name: str = Field(default="", max_length=64)
+
+
+class AIProviderRequest(BaseModel):
+    name: str = Field(max_length=64)
+    provider: str = Field(default="", max_length=64)
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=512)
+    model: str = Field(default="", max_length=128)
+    activate: bool = False
+
+
+class AIConfigResponse(BaseModel):
+    provider: str = ""
+    base_url: str = ""
+    model: str = ""
+    has_key: bool = False
+    configured: bool = False

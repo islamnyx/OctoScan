@@ -132,7 +132,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # index.html uses inline <style>/<script>; allow 'unsafe-inline' for style only,
         # scripts are inline in the single file so we must allow them deliberately.
         # API responses are JSON — CSP doesn't hurt.
-        if request.url.path in ("/", "/static/index.html"):
+        path = request.url.path
+        is_page = (
+            path in ("/", "/static/index.html", "/static/scan.html", "/static/status.html")
+            or path.startswith("/scans/")
+            or path.startswith("/repos/")
+        )
+        if is_page:
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
