@@ -80,7 +80,7 @@ def create_scan(req: ScanRequest, request: Request, api_key: str = Depends(requi
     if running >= 3:
         raise HTTPException(429, "too many concurrent scans (max 3), retry later")
     target = validate_target_url(str(req.target_url), settings.allow_private_targets)
-    job = ScanJob(target_url=target)
+    job = ScanJob(target_url=target, requested_scanners=req.scanners or [])
     save_job(job)
     Thread(target=run_scan, args=(job.id,), daemon=True).start()
     return job
@@ -300,7 +300,7 @@ def create_repo_scan(req: RepoScanRequest, request: Request, api_key: str = Depe
     _limiter.check(request.client.host if request.client else "unknown")
     repo_url = validate_repo_url(req.repo_url)
     branch = validate_branch(req.branch)
-    job = RepoScanJob(repo_url=repo_url, branch=branch, ai_requested=req.include_ai)
+    job = RepoScanJob(repo_url=repo_url, branch=branch, ai_requested=req.include_ai, requested_scanners=req.scanners or [])
     save_repo_job(job)
     Thread(
         target=run_repo_scan,

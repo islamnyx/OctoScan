@@ -137,6 +137,18 @@
                 <input id="url" type="url" placeholder="https://example.com" required />
               </div>
             </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Tests to run <span class="note">(uncheck to skip — all run by default)</span></label>
+              <div class="field-row" style="margin-top:6px;">
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="zap" checked /> ZAP (web vulns)</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="nuclei" checked /> Nuclei (CVEs)</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="nikto" checked /> Nikto (misconfigs)</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="nmap" checked /> Nmap (ports)</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="headers" checked /> Headers</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="testssl" checked /> TLS</label>
+                <label class="checkline"><input class="web-scanner" type="checkbox" value="sensitive-files" checked /> Sensitive files</label>
+              </div>
+            </div>
             <div class="actions">
               <button type="submit" id="submit-btn" class="btn">Run security scan</button>
             </div>
@@ -154,6 +166,13 @@
               <div class="field fixed">
                 <label for="repo-branch">Branch</label>
                 <input id="repo-branch" type="text" placeholder="default" />
+              </div>
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Tests to run <span class="note">(uncheck to skip — all run by default)</span></label>
+              <div class="field-row" style="margin-top:6px;">
+                <label class="checkline"><input class="repo-scanner" type="checkbox" value="gitleaks" checked /> Gitleaks (secrets)</label>
+                <label class="checkline"><input class="repo-scanner" type="checkbox" value="semgrep" checked /> Semgrep (SAST)</label>
               </div>
             </div>
             <div class="actions">
@@ -327,12 +346,14 @@
       e.preventDefault();
       const target_url = document.getElementById("url").value.trim();
       if (!target_url) return;
+      const scanners = [...document.querySelectorAll(".web-scanner:checked")].map(c => c.value);
+      if (!scanners.length) { alert("Pick at least one test to run."); return; }
       submitBtn.disabled = true;
       try {
         const res = await fetch("/api/scans", {
           method: "POST",
           headers: apiHeaders(),
-          body: JSON.stringify({ target_url })
+          body: JSON.stringify({ target_url, scanners })
         });
         if (!res.ok) {
           alert("Could not start the scan: " + (await res.text()).slice(0, 200));
@@ -353,7 +374,12 @@
       const branch = document.getElementById("repo-branch").value.trim() || null;
       const include_ai = document.getElementById("repo-ai").checked;
       const ai_model = include_ai ? (document.getElementById("repo-ai-model").value || null) : null;
+      const scanners = [...document.querySelectorAll(".repo-scanner:checked")].map(c => c.value);
       if (!repo_url) return;
+      if (!scanners.length && !include_ai) {
+        setBanner(repoStatusEl, "error", "Pick at least one test (Gitleaks, Semgrep) or enable AI review.");
+        return;
+      }
       if (include_ai && !ai_model) {
         setBanner(repoStatusEl, "error", "Pick an AI model for this scan (or connect a provider in the AI provider tab).");
         return;
@@ -363,7 +389,7 @@
       try {
         const res = await fetch("/api/repo-scans", {
           method: "POST", headers: apiHeaders(),
-          body: JSON.stringify({ repo_url, branch, include_ai, ai_model })
+          body: JSON.stringify({ repo_url, branch, include_ai, ai_model, scanners })
         });
         if (!res.ok) {
           setBanner(repoStatusEl, "error", `Could not start the scan: ${escapeHtml((await res.text()).slice(0, 250))}`);

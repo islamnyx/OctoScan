@@ -98,7 +98,11 @@ def run_scan(scan_id: str) -> ScanJob:
 
     max_parallel = max(1, settings.scan_max_parallel)
     done = set(job.scanners_run)
+    # Dashboard picker: empty = run everything (pre-picker behavior).
+    requested = set(job.requested_scanners or [])
     ordered = [c for c in SEQUENTIAL_ORDER if c in SCANNERS and c.name not in done]
+    if requested:
+        ordered = [c for c in ordered if c.name in requested]
 
     def _stopped() -> str | None:
         flags = control.read(job.id, "scan")
@@ -156,28 +160,34 @@ def run_scan(scan_id: str) -> ScanJob:
     # cover (e.g. /ftp/*.kdbx seen only as a URL inside a merged header
     # finding). Re-examine discovered URLs for exposed sensitive files.
     # Pure pattern matching — never fails the scan. Skipped on resume if
-    # it already ran (its output is already in findings).
-    if "sensitive-files" not in job.scanners_run:
+    # it already ran (its output is already in findings). Skipped entirely
+    # when the dashboard picker excluded sensitive-files.
+    want_sensitive = not requested or "sensitive-files" in requested
+    if "sensitive-files" not in job.scanners_run and not want_sensitive:
+        job.scanners_run.append("sensitive-files")
+        # Intentionally no findings: user deselected this check.
+        pass
+    elif "sensitive-files" not in job.scanners_run:
         stop = _stopped()
         if stop == "finish":
             return finalize_scan(job, findings, errors, early=True)
         if stop == "pause":
             return _pause(job, findings, errors)
-    try:
-        activity.current(job.id, "sensitive-files: probing discovered URLs…")
-        sensitive = flag_sensitive_files(job.target_url, findings)
-        # Active probes: high-value paths no crawler reliably discovers
-        # (/.git/HEAD, /.git/config, /.env, /.DS_Store). Runs even when
-        # no other scanner found any URL (e.g. headers-only scans).
         try:
-            sensitive += probe_wellknown(job.target_url)
+            activity.current(job.id, "sensitive-files: probing discovered URLs…")
+            sensitive = flag_sensitive_files(job.target_url, findings)
+            # Active probes: high-value paths no crawler reliably discovers
+            # (/.git/HEAD, /.git/config, /.env, /.DS_Store). Runs even when
+            # no other scanner found any URL (e.g. headers-only scans).
+            try:
+                sensitive += probe_wellknown(job.target_url)
+            except Exception as exc:
+                errors.append(f"sensitive-files-probe: {exc}")
+            if sensitive:
+                job.findings = prioritize(job.findings + sensitive)
+            job.scanners_run.append("sensitive-files")
         except Exception as exc:
-            errors.append(f"sensitive-files-probe: {exc}")
-        if sensitive:
-            job.findings = prioritize(job.findings + sensitive)
-        job.scanners_run.append("sensitive-files")
-    except Exception as exc:
-        errors.append(f"sensitive-files: {exc}")
+            errors.append(f"sensitive-files: {exc}")
     if prior_error and prior_error not in errors:
         errors = [prior_error] + errors
     activity.log(job.id, f"scan finished", kind="done")

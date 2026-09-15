@@ -36,10 +36,33 @@ class Finding(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+WEB_SCANNER_CHOICES = {"zap", "headers", "nmap", "testssl", "nikto", "nuclei", "sensitive-files"}
+REPO_SCANNER_CHOICES = {"gitleaks", "semgrep"}
+
+
+def _clean_scanner_list(v: list[str] | None, allowed: set[str]) -> list[str]:
+    if not v:
+        return []
+    seen: list[str] = []
+    for item in v[:10]:
+        name = str(item).strip().lower()[:32]
+        if name in allowed and name not in seen:
+            seen.append(name)
+    return seen
+
+
 class ScanRequest(BaseModel):
     target_url: HttpUrl
     include_source: bool = False
     repo_url: str | None = None
+    # Dashboard scanner picker: subset of web scanners to run.
+    # Empty/omitted = run all (backward compatible).
+    scanners: list[str] | None = None
+
+    @field_validator("scanners")
+    @classmethod
+    def _clean_scanners(cls, v: list[str] | None) -> list[str]:
+        return _clean_scanner_list(v, WEB_SCANNER_CHOICES)
 
     @field_validator("repo_url")
     @classmethod
@@ -64,6 +87,9 @@ class ScanJob(BaseModel):
     error: str | None = None
     scanners_run: list[str] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    # Dashboard selection: which web scanners were requested. Empty = all.
+    # Persisted so resume skips correctly and old jobs still load.
+    requested_scanners: list[str] = Field(default_factory=list)
     # Per-scanner coverage metadata (scope actually achieved), kept out of
     # findings so severity counts only reflect real vulns. Old job.json
     # files without this field still load via the default.
@@ -90,6 +116,14 @@ class RepoScanRequest(BaseModel):
     # Per-scan model override (dashboard's codebase-tab model picker).
     # Falls back to the saved AI config model when omitted.
     ai_model: str | None = Field(default=None, max_length=128)
+    # Dashboard scanner picker: subset of {gitleaks, semgrep}.
+    # Empty/omitted = run all (backward compatible).
+    scanners: list[str] | None = None
+
+    @field_validator("scanners")
+    @classmethod
+    def _clean_scanners(cls, v: list[str] | None) -> list[str]:
+        return _clean_scanner_list(v, REPO_SCANNER_CHOICES)
 
 
 class AIAnalysis(BaseModel):
@@ -116,6 +150,8 @@ class RepoScanJob(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     files_scanned: int = 0
     ai: AIAnalysis | None = None
+    # Dashboard selection: which source scanners were requested. Empty = all.
+    requested_scanners: list[str] = Field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
         counts = {s.value: 0 for s in Severity}

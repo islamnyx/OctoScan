@@ -103,7 +103,12 @@ def run_repo_scan(scan_id: str, *, run_ai: bool = False, ai_model: str | None = 
         save_repo_job(job)
 
     done = set(job.scanners_run)
-    for cls in [c for c in SOURCE_SCANNERS if c.name not in done]:
+    # Dashboard picker: empty = run everything (pre-picker behavior).
+    requested = set(job.requested_scanners or [])
+    wanted = [c for c in SOURCE_SCANNERS if c.name not in done]
+    if requested:
+        wanted = [c for c in wanted if c.name in requested]
+    for cls in wanted:
         stop = _stopped()
         if stop == "finish":
             return finalize_repo_job(job, findings, errors, early=True)
