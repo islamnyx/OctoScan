@@ -1,0 +1,140 @@
+# Custom logic-flaw rules for the repo scanner (P4).
+#
+# Semgrep's registry (`--config auto`) is syntax/pattern oriented and misses
+# business-logic flaws: NoSQL operator injection, IDOR, open redirect, SSRF
+# via request-built URLs, unescaped reflection. These taint + pattern rules
+# target exactly those sinks. They are intentionally WARNING/medium: every
+# hit needs a human to confirm the missing validation — the message says so.
+# Shipped as a directory so the scanner passes it as an extra --config.
+#
+# Taint-mode gotcha (verified 2026-09-15): multiple `- pattern:` entries
+# inside ONE `- patterns:` block are ANDed (a call can never be both
+# needle.get AND needle.post, so the rule silently matches nothing).
+# Each sink/sanitizer pattern therefore gets its OWN `- patterns:` block
+# (separate list items are ORed).
+rules:
+  - id: nodegoat-nosql-where-interpolation
+    languages: [javascript]
+    severity: ERROR
+    message: >-
+      $where with an interpolated string lets request input run as
+      JavaScript inside MongoDB (NoSQL injection). Build the predicate
+      from parsed values or avoid $where entirely.
+    patterns:
+      - pattern: "$where: `...`"
+
+  - id: nodegoat-nosql-request-to-query
+    languages: [javascript]
+    severity: WARNING
+    mode: taint
+    message: >-
+      Request-controlled value reaches a MongoDB query. Review for NoSQL
+      operator injection ($gt/$ne/$where smuggled in request data) and mass
+      assignment ($set built from request fields). Flagged for review, not
+      confirmed exploitable.
+    pattern-sources:
+      - patterns:
+          - pattern: req.body
+      - patterns:
+          - pattern: req.query
+      - patterns:
+          - pattern: req.params
+    pattern-sinks:
+      - patterns:
+          - pattern: $C.find(...)
+      - patterns:
+          - pattern: $C.findOne(...)
+      - patterns:
+          - pattern: $C.update(...)
+      - patterns:
+          - pattern: $C.updateOne(...)
+      - patterns:
+          - pattern: $C.deleteOne(...)
+      - patterns:
+          - pattern: $C.remove(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern: parseInt(...)
+      - patterns:
+          - pattern: parseFloat(...)
+      - patterns:
+          - pattern: Number(...)
+
+  - id: nodegoat-idor-url-key-lookup
+    languages: [javascript]
+    severity: WARNING
+    mode: taint
+    message: >-
+      Lookup key comes straight from the URL. Verify an ownership /
+      authorization check before returning the document, otherwise any
+      user can read other users' records by changing the ID (IDOR).
+    pattern-sources:
+      - patterns:
+          - pattern: req.query
+      - patterns:
+          - pattern: req.params
+    pattern-sinks:
+      - patterns:
+          - pattern: $C.findOne(...)
+      - patterns:
+          - pattern: $C.find(...)
+
+  - id: nodegoat-open-redirect
+    languages: [javascript]
+    severity: WARNING
+    message: >-
+      Redirect target built from request input. Validate against an
+      allow-list of relative paths or the app becomes a phishing relay.
+    patterns:
+      - pattern: res.redirect(req....)
+
+  - id: nodegoat-ssrf-request-url
+    languages: [javascript]
+    severity: WARNING
+    mode: taint
+    message: >-
+      Server-side request URL built from request input (SSRF). Restrict to
+      an allow-list of hosts/schemes and block metadata addresses.
+    pattern-sources:
+      - patterns:
+          - pattern: req.query
+      - patterns:
+          - pattern: req.params
+      - patterns:
+          - pattern: req.body
+    pattern-sinks:
+      - patterns:
+          - pattern: needle.get(...)
+      - patterns:
+          - pattern: needle.post(...)
+      - patterns:
+          - pattern: $M.request(...)
+      - patterns:
+          - pattern: $HTTP.get(...)
+      - patterns:
+          - pattern: $M.fetch(...)
+
+  - id: nodegoat-reflected-xss-sink
+    languages: [javascript]
+    severity: WARNING
+    mode: taint
+    message: >-
+      Request-influenced data written to the response without visible
+      escaping. Confirm output encoding, otherwise reflected XSS.
+    pattern-sources:
+      - patterns:
+          - pattern: req.body
+      - patterns:
+          - pattern: req.query
+      - patterns:
+          - pattern: req.params
+    pattern-sinks:
+      - patterns:
+          - pattern: res.send(...)
+      - patterns:
+          - pattern: res.write(...)
+      - patterns:
+          - pattern: res.end(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern: encodeURIComponent(...)

@@ -173,6 +173,7 @@
               <div class="field-row" style="margin-top:6px;">
                 <label class="checkline"><input class="repo-scanner" type="checkbox" value="gitleaks" checked /> Gitleaks (secrets)</label>
                 <label class="checkline"><input class="repo-scanner" type="checkbox" value="semgrep" checked /> Semgrep (SAST)</label>
+                <label class="checkline"><input class="repo-scanner" type="checkbox" value="osv" checked /> OSV (deps/CVEs)</label>
               </div>
             </div>
             <div class="actions">
@@ -186,7 +187,7 @@
                 <span class="note" id="repo-ai-model-note"></span>
               </div>
             </div>
-            <p class="formhint">Shallow-clones the repo and runs secret + SAST scans. Code is never executed.</p>
+            <p class="formhint">Shallow-clones the repo and runs secret + SAST + dependency (OSV) scans. Code is never executed. Static scans catch secrets, known CVEs and risky sinks — business-logic flaws (authz/IDOR) need the AI pass or manual review, so a clean static result does not mean secure.</p>
           </form>
           <div id="repo-status" class="banner" role="status"></div>
         </div>

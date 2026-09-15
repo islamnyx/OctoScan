@@ -9,7 +9,7 @@ import json
 import re
 import subprocess
 
-from app.config import settings
+from app.config import ROOT, settings
 from app.models import Finding, Severity
 from app.repo import is_vendored, iter_repo_files
 from app.scanners.source_base import SourceScanner
@@ -64,6 +64,45 @@ HEURISTICS: list[tuple[str, re.Pattern[str], Severity, str]] = [
 
 CODE_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rb", ".php"}
 
+# Custom logic-flaw rules (P4: NoSQLi/IDOR/redirect/SSRF/XSS taint + $where).
+# Tracked in-repo so every install uses them; appended after --config auto.
+CUSTOM_RULES_DIR = ROOT / "semgrep-rules"
+
+
+def _custom_rules_args() -> list[str]:
+    try:
+        if CUSTOM_RULES_DIR.is_dir() and any(CUSTOM_RULES_DIR.glob("*.yml")):
+            return ["--config", str(CUSTOM_RULES_DIR)]
+    except Exception:
+        pass
+    return []
+
+
+def _cwe_ids(raw: object) -> list[str]:
+    """['CWE-1357: Reliance on ...'] -> ['CWE-1357']. Dedupe, cap 5."""
+    out: list[str] = []
+    items = raw if isinstance(raw, list) else [raw]
+    for item in items:
+        m = re.search(r"CWE-\d+", str(item or ""))
+        if m and m.group(0) not in out:
+            out.append(m.group(0))
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _owasp_codes(raw: object) -> list[str]:
+    """['A08:2021 - Software and Data Integrity Failures'] -> ['A08:2021']."""
+    out: list[str] = []
+    items = raw if isinstance(raw, list) else [raw]
+    for item in items:
+        code = str(item or "").split(" - ")[0].strip()[:16]
+        if code and code not in out:
+            out.append(code)
+        if len(out) >= 5:
+            break
+    return out
+
 
 class SemgrepScanner(SourceScanner):
     name = "semgrep"
@@ -78,10 +117,32 @@ class SemgrepScanner(SourceScanner):
                 return self._via_heuristics(str(exc))
             raise
 
+    def _local_snippet(self, rel: str, start: int | None, end: int | None,
+                       context: int = 3, cap: int = 600) -> str:
+        """Code evidence read from the already-scanned local clone.
+
+        Semgrep redacts `extra.lines` as "requires login" for some rules
+        (pro-engine gating without auth), so the snippet must come from
+        disk — never re-fetched from the repo URL.
+        """
+        try:
+            if not rel or not start:
+                return ""
+            base = self.repo_path if self.repo_path.is_absolute() else ROOT / self.repo_path
+            lines = (base / rel).read_text(errors="ignore").splitlines()
+            if not lines:
+                return ""
+            lo = max(0, start - 1 - context)
+            hi = min(len(lines), (end or start) + context)
+            return "\n".join(lines[lo:hi])[:cap]
+        except Exception:
+            return ""
+
     def _via_binary(self) -> list[Finding]:
         out = self.repo_path / ".semgrep.json"
         cmd = [
             settings.semgrep_bin, "--config", "auto",
+            *_custom_rules_args(),
             "--json", "--output", str(out), "--quiet",
             str(self.repo_path),
         ]
@@ -109,15 +170,39 @@ class SemgrepScanner(SourceScanner):
             sev = {"ERROR": Severity.high, "WARNING": Severity.medium}.get(sev_raw, Severity.low)
             start = r.get("start")
             line = start.get("line", "") if isinstance(start, dict) else ""
+            end = r.get("end")
+            end_line = end.get("line", "") if isinstance(end, dict) else ""
+            try:
+                start_n = int(line) if str(line).isdigit() else None
+            except Exception:
+                start_n = None
+            try:
+                end_n = int(end_line) if str(end_line).isdigit() else None
+            except Exception:
+                end_n = None
+            # P1: evidence from the local clone, not semgrep's redacted
+            # `extra.lines` ("requires login" without pro auth).
+            evidence = self._local_snippet(path, start_n, end_n)
+            if not evidence:
+                fallback = str(extra.get("lines", ""))
+                evidence = "" if fallback.strip().lower() == "requires login" else fallback[:300]
+            # P5: free taxonomy straight from registry metadata.
+            meta = extra.get("metadata")
+            if not isinstance(meta, dict):
+                meta = {}
+            cwe = _cwe_ids(meta.get("cwe"))
+            owasp = _owasp_codes(meta.get("owasp"))
             findings.append(
                 Finding(
                     scanner=self.name,
                     title=f"Semgrep {check} in {path}",
                     severity=sev,
                     description=str(extra.get("message") or check)[:500],
-                    evidence=str(extra.get("lines", ""))[:300],
+                    evidence=evidence,
                     location=f"{self.repo_url}#{path}:{line}",
                     recommendation="Review the flagged pattern and apply the rule's fix.",
+                    cwe=cwe,
+                    owasp=owasp,
                     raw={"check": check, "file": path},
                 )
             )

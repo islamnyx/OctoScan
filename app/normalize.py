@@ -66,7 +66,67 @@ def prioritize(findings: list[Finding]) -> list[Finding]:
 # Without merging, one root cause shows up 10+ times (e.g. ZAP 10098
 # per-URL + Nikto 999986). Group by concept per target host; keep the
 # strongest finding, record merged sources + affected URLs.
+SOURCE_SCANNERS = {"gitleaks", "semgrep", "builtin-secrets", "osv", "ai-code-review", "ai"}
+
+
+def _source_type(text: str) -> str | None:
+    """Coarse finding-type slug so the same underlying issue reported by
+    two source scanners merges (e.g. server.key flagged by both semgrep
+    and gitleaks). Unknown types return None = never merge."""
+    if "private-key" in text or "private key" in text:
+        return "private-key"
+    if any(k in text for k in ("api-key", "api key", "secret", "token", "password", "passwd", "aws_", "akia", "bcrypt", "hash")):
+        return "secret"
+    if "sql" in text:
+        return "sqli"
+    if "xss" in text or "cross-site" in text or "innerhtml" in text:
+        return "xss"
+    if "command injection" in text or "shell" in text or "exec" in text:
+        return "cmdi"
+    if "lfi" in text or "rfi" in text or "file inclusion" in text or "path traversal" in text or "traversal" in text:
+        return "pathtraversal"
+    if "redirect" in text:
+        return "redirect"
+    if "deserial" in text:
+        return "deser"
+    if "ssrf" in text:
+        return "ssrf"
+    if "nosql" in text or "$where" in text:
+        return "nosqli"
+    if "idor" in text or "broken object" in text or "broken function" in text:
+        return "idor"
+    if "cve-" in text or text.startswith("cve"):
+        return "cve"
+    return None
+
+
+def _source_concept(f: Finding) -> str | None:
+    """Same file + same line + same finding-type from any source scanners
+    (gitleaks/semgrep/osv/...) is one issue, not N findings. Findings
+    without a numeric line number never merge (avoids collapsing distinct
+    issues that merely share a file)."""
+    if f.scanner not in SOURCE_SCANNERS:
+        return None
+    loc = f.location or ""
+    frag = loc.split("#", 1)[1] if "#" in loc else ""
+    rel, _, line = frag.rpartition(":")
+    if not rel or not line.strip().isdigit():
+        return None
+    raw = f.raw or {}
+    text = " ".join([
+        f.title or "", f.description or "",
+        str(raw.get("check") or ""), str(raw.get("rule") or ""),
+    ]).lower()
+    kind = _source_type(text)
+    if kind is None:
+        return None
+    return f"src-{rel.strip().lower()}-{line.strip()}-{kind}"
+
+
 def _concept(f: Finding) -> str | None:
+    src = _source_concept(f)
+    if src is not None:
+        return src
     title = (f.title or "").lower()
     desc = (f.description or "").lower()
     text = f"{title} {desc}"

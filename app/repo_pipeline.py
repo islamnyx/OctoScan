@@ -16,11 +16,12 @@ from app.normalize import prioritize
 from app.repo import clone_repo, iter_repo_files
 from app.repo_store import load_repo_job, repo_workdir, save_repo_job
 from app.scanners.source_gitleaks import GitleaksScanner
+from app.scanners.source_osv import OsvScanner
 from app.scanners.source_semgrep import SemgrepScanner
 
 # Gitleaks/Semgrep each fall back to builtin heuristics when their
 # binary is missing, so no standalone builtin run (avoids dupes).
-SOURCE_SCANNERS = [GitleaksScanner, SemgrepScanner]
+SOURCE_SCANNERS = [GitleaksScanner, SemgrepScanner, OsvScanner]
 
 
 def finalize_repo_job(

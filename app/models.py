@@ -33,11 +33,15 @@ class Finding(BaseModel):
     location: str = ""
     cve: str | None = None
     cvss: float | None = None
+    # CWE / OWASP tags (semgrep registry metadata, OSV aliases…).
+    # Empty for scanners without taxonomy data; defaults keep old jobs loadable.
+    cwe: list[str] = Field(default_factory=list)
+    owasp: list[str] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
 WEB_SCANNER_CHOICES = {"zap", "headers", "nmap", "testssl", "nikto", "nuclei", "sensitive-files"}
-REPO_SCANNER_CHOICES = {"gitleaks", "semgrep"}
+REPO_SCANNER_CHOICES = {"gitleaks", "semgrep", "osv"}
 
 
 def _clean_scanner_list(v: list[str] | None, allowed: set[str]) -> list[str]:

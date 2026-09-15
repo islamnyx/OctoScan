@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     git_bin: str = "git"
     gitleaks_bin: str = "gitleaks"
     semgrep_bin: str = "semgrep"
+    osv_bin: str = "osv-scanner"
     repos_dir: Path = ROOT / "data" / "repos"
     repo_clone_timeout_s: int = 120
     repo_max_files: int = 20000
