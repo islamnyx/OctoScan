@@ -63,7 +63,7 @@ class GitleaksScanner(SourceScanner):
             if not isinstance(it, dict):
                 continue
             rule = str(it.get("RuleID") or it.get("Description") or "secret")
-            path = str(it.get("File") or "")
+            path = self._rel(str(it.get("File") or ""))
             sev = Severity.medium
             tags = " ".join(it.get("Tags") or []).lower()
             for tag, s in SEV_BY_TAG:

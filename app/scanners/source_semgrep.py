@@ -101,7 +101,7 @@ class SemgrepScanner(SourceScanner):
             if not isinstance(r, dict):
                 continue
             check = str(r.get("check_id", "semgrep"))
-            path = str(r.get("path", ""))
+            path = self._rel(str(r.get("path", "")))
             extra = r.get("extra")
             if not isinstance(extra, dict):
                 extra = {}

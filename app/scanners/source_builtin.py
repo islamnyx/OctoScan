@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from app.models import Finding, Severity
-from app.repo import iter_repo_files
+from app.repo import is_vendored, iter_repo_files
 from app.scanners.source_base import SourceScanner
 
 TEXT_EXTS = {
@@ -54,6 +54,11 @@ class BuiltinSecretsScanner(SourceScanner):
     def run(self) -> list[Finding]:
         findings: list[Finding] = []
         for path in iter_repo_files(self.repo_path):
+            # Vendored trees (static/, *.min.js, jquery…) match generic
+            # regexes on library code — first-party code only, same as
+            # the semgrep heuristic pass.
+            if is_vendored(path, self.repo_path):
+                continue
             if not _is_text(path):
                 continue
             try:
