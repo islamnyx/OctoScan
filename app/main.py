@@ -43,7 +43,7 @@ def require_api_key(x_api_key: str = Header(default="")):
     return x_api_key
 
 
-app = FastAPI(title="Security Precheck", version="0.1.0")
+app = FastAPI(title="OctoScan", version="0.1.0")
 app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -116,7 +116,7 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
     if not job:
         raise HTTPException(404, "scan not found")
     lines = [
-        "Security Precheck Report",
+        "OctoScan Report",
         "=" * 40,
         f"Target: {job.target_url}",
         f"Scan ID: {job.id}",

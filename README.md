@@ -1,4 +1,4 @@
-# Security Precheck
+# OctoScan by OctoSec Labs
 
 Pre-launch security check for Algerian startups. Orchestrates Nmap, OWASP ZAP, and testssl.sh into a unified scan, normalizes their output, and shows prioritized findings on a simple dashboard.
 
