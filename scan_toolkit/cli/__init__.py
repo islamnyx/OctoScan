@@ -11,8 +11,12 @@ from scan_toolkit.cli import intake, report, run, status
 
 
 def register(parent: typer.Typer) -> None:
-    """Register all subcommand callbacks on the root Typer app."""
-    parent.command(name="intake")(intake.create_engagement)
+    """Register all subcommands on the root Typer app.
+
+    intake is a group (create + validate); run/status/report stay flat commands
+    per the CLI contract in the spec (e.g. ``scan-toolkit run --stage static``).
+    """
+    parent.add_typer(intake.app, name="intake")
     parent.command(name="run")(run.run_stage)
     parent.command(name="status")(status.show_status)
     parent.command(name="report")(report.generate_report)

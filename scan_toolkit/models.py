@@ -111,6 +111,9 @@ class Engagement(Base):
     attack_chains: Mapped[list[AttackChain]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan"
     )
+    intake: Mapped["IntakeChecklist | None"] = relationship(
+        back_populates="engagement", uselist=False, cascade="all, delete-orphan"
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -197,4 +200,53 @@ class AttackChain(Base):
             "finding_ids": self.finding_ids or [],
             "narrative": self.narrative,
             "combined_severity": self.combined_severity.value,
+        }
+
+
+class IntakeChecklist(Base):
+    """Intake checklist item — captured at engagement intake (Phase 2).
+
+    Separate from Engagement so the core schema stays pristine. The checklist
+    records *where* artifacts were stored (copied into the per-engagement folder
+    for reproducibility) plus the flags the intake gate needs: scope agreement,
+    and whether test credentials exist when API scanning is in scope.
+    """
+
+    __tablename__ = "intake_checklists"
+
+    id: Mapped[str] = mapped_column(sa.String(12), primary_key=True, default=_new_id)
+    engagement_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("engagements.id"), unique=True, index=True
+    )
+    scope_agreement_confirmed: Mapped[bool] = mapped_column(default=False)
+    # stored (absolute) paths inside the engagement's artifact folder
+    binary_path: Mapped[str | None] = mapped_column(nullable=True)
+    binary_filename: Mapped[str | None] = mapped_column(nullable=True)
+    api_docs_path: Mapped[str | None] = mapped_column(nullable=True)
+    has_test_credentials: Mapped[bool] = mapped_column(default=False)
+    credentials_filename: Mapped[str | None] = mapped_column(nullable=True)
+    network_constraints: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    api_scan_in_scope: Mapped[bool] = mapped_column(default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        onupdate=func.now(), nullable=True
+    )
+
+    engagement: Mapped[Engagement] = relationship(back_populates="intake")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "engagement_id": self.engagement_id,
+            "scope_agreement_confirmed": self.scope_agreement_confirmed,
+            "binary_path": self.binary_path,
+            "binary_filename": self.binary_filename,
+            "api_docs_path": self.api_docs_path,
+            "has_test_credentials": self.has_test_credentials,
+            "credentials_filename": self.credentials_filename,
+            "network_constraints": self.network_constraints,
+            "api_scan_in_scope": self.api_scan_in_scope,
         }

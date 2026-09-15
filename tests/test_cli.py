@@ -15,11 +15,11 @@ def test_help_shows_subcommands():
         assert cmd in result.output
 
 
-def test_intake_stub():
-    result = runner.invoke(app, ["intake"])
+def test_intake_help_shows_subcommands():
+    result = runner.invoke(app, ["intake", "--help"])
     assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
-    assert "phase 2" in result.output.lower()
+    for cmd in ["create", "validate"]:
+        assert cmd in result.output
 
 
 def test_run_stub():
