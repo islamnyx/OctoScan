@@ -24,10 +24,32 @@ from app.scanners.source_semgrep import SemgrepScanner
 SOURCE_SCANNERS = [GitleaksScanner, SemgrepScanner, OsvScanner]
 
 
+def repo_summary(job: RepoScanJob, raw_count: int) -> dict:
+    """Top-level rollup the dashboard renders first (Q6)."""
+    secret_keys = ("secret", "private-key", "private key", "api-key", "api key",
+                   "token", "password", "passwd", "akia", "bcrypt")
+    secrets = sum(
+        1 for f in job.findings
+        if any(k in f"{f.title or ''} {f.description or ''}".lower() for k in secret_keys)
+    )
+    merged = sum(int((f.raw or {}).get("merged_count", 1)) - 1 for f in job.findings)
+    return {
+        "counts": job.counts(),
+        "raw_findings": raw_count,
+        "findings": len(job.findings),
+        "merged_duplicates": max(0, merged),
+        "files_scanned": job.files_scanned,
+        "findings_with_secrets": secrets,
+        "scanners": list(job.scanners_run),
+    }
+
+
 def finalize_repo_job(
     job: RepoScanJob, findings: list[Finding], errors: list[str], *, early: bool = False
 ) -> RepoScanJob:
+    raw_count = len(findings)
     job.findings = prioritize(findings)
+    job.summary = repo_summary(job, raw_count)
     job.finished_at = datetime.now(timezone.utc)
     note = "Finished early by user request (partial results). " if early else ""
     if errors and not findings:
@@ -43,7 +65,9 @@ def finalize_repo_job(
 
 
 def _pause(job: RepoScanJob, findings: list[Finding], errors: list[str]) -> RepoScanJob:
+    raw_count = len(findings)
     job.findings = prioritize(findings)
+    job.summary = repo_summary(job, raw_count)
     prior = ([job.error] if job.error else []) + [e for e in errors if e != job.error]
     job.error = "; ".join(prior)[:1000] if prior else job.error
     job.status = ScanStatus.paused

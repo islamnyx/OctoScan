@@ -216,6 +216,8 @@
       countsEl.style.display = "flex";
       countsEl.innerHTML = ["critical", "high", "medium", "low", "info"]
         .map(k => `<span class="pill ${k}">${k}<b>${counts[k]}</b></span>`).join("")
+        + ((j.summary && j.summary.merged_duplicates) ? `<span class="pill info" title="Duplicate findings collapsed by dedup">×${j.summary.merged_duplicates} merged</span>` : "")
+        + ((j.summary && j.summary.findings_with_secrets) ? `<span class="pill high" title="Findings involving hardcoded secrets/keys">secrets ${j.summary.findings_with_secrets}</span>` : "")
         + `<span class="summary-actions" style="margin-left:auto; display:flex; gap:8px;"></span>`;
       const actions = countsEl.querySelector(".summary-actions");
       const mkBtn = (label, primary, fn) => {

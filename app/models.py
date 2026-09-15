@@ -156,6 +156,9 @@ class RepoScanJob(BaseModel):
     ai: AIAnalysis | None = None
     # Dashboard selection: which source scanners were requested. Empty = all.
     requested_scanners: list[str] = Field(default_factory=list)
+    # Rollup summary for the dashboard (counts, dedup stats, secret count).
+    # Computed at finalize/pause; defaults keep old job.json files loadable.
+    summary: dict[str, Any] = Field(default_factory=dict)
 
     def counts(self) -> dict[str, int]:
         counts = {s.value: 0 for s in Severity}

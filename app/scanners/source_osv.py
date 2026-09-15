@@ -62,6 +62,10 @@ def _fixed_versions(vuln: dict) -> list[str]:
         for rng in ranges:
             if not isinstance(rng, dict):
                 continue
+            # GIT-type ranges carry commit SHAs, not versions — never
+            # render those as `>=` upgrade targets.
+            if str(rng.get("type", "")).upper() == "GIT":
+                continue
             events = rng.get("events")
             if not isinstance(events, list):
                 continue
@@ -69,6 +73,57 @@ def _fixed_versions(vuln: dict) -> list[str]:
                 if isinstance(ev, dict) and ev.get("fixed") and ev["fixed"] not in fixed:
                     fixed.append(str(ev["fixed"]))
     return fixed[:3]
+
+
+def _parent_map(repo_path) -> dict[str, set[str]]:
+    """Child package name -> set of immediate parent package names, from
+    lockfile v2 `packages` entries' `dependencies` maps. Root-level
+    installs resolve to {'(root)'}. Name-level (not version-pinned):
+    enough to name the parent that pulls a transitive dep in.
+    """
+    parents: dict[str, set[str]] = {}
+    try:
+        base = repo_path if repo_path.is_absolute() else ROOT / repo_path
+        lock = None
+        for candidate in ("package-lock.json", "npm-shrinkwrap.json"):
+            p = base / candidate
+            if p.is_file():
+                lock = json.loads(p.read_text())
+                break
+        if not isinstance(lock, dict):
+            return parents
+        packages = lock.get("packages")
+        if not isinstance(packages, dict):
+            # Legacy v1 shape: dependencies tree with `requires`.
+            deps = lock.get("dependencies")
+            if isinstance(deps, dict):
+                for name, info in deps.items():
+                    if isinstance(info, dict) and isinstance(info.get("requires"), dict):
+                        for child in info["requires"]:
+                            parents.setdefault(str(child), set()).add(str(name))
+            return parents
+        for path, info in packages.items():
+            if not isinstance(info, dict) or not isinstance(path, str):
+                continue
+            if path in ("", "."):
+                owner = "(root)"
+            else:
+                # node_modules/X -> declared by X itself.
+                # node_modules/A/.../node_modules/B -> declared by A.
+                segs = [s for s in path.split("/") if s not in ("", "node_modules")]
+                owner = segs[-1] if len(segs) == 1 else (segs[-2] if len(segs) >= 2 else "(root)")
+            declared: dict = {}
+            for depkey in ("dependencies", "optionalDependencies", "peerDependencies"):
+                deps = info.get(depkey)
+                if isinstance(deps, dict):
+                    declared.update(deps)
+            for child in declared:
+                # "(root)" as a declarer only counts for real direct deps;
+                # lockfile drift otherwise mislabels transitives as root-owned.
+                parents.setdefault(str(child), set()).add(owner)
+    except Exception:
+        pass
+    return parents
 
 
 class OsvScanner(SourceScanner):
@@ -101,6 +156,7 @@ class OsvScanner(SourceScanner):
             return self._unavailable("osv-scanner output unparseable")
 
         direct = _root_direct_deps(self.repo_path)
+        parents = _parent_map(self.repo_path)
         groups: dict[str, dict] = {}
         for res in results:
             if not isinstance(res, dict):
@@ -117,6 +173,10 @@ class OsvScanner(SourceScanner):
                 version = str(info.get("version", "?"))
                 ecosystem = str(info.get("ecosystem", "?"))
                 kind = "unknown" if direct is None else ("direct" if name in direct else "transitive")
+                via = sorted((parents.get(name) or set()) - {name})
+                if kind == "transitive":
+                    via = [v for v in via if v != "(root)"]
+                via = via[:3]
                 vulns = pkg.get("vulnerabilities")
                 if not isinstance(vulns, list):
                     continue
@@ -153,7 +213,7 @@ class OsvScanner(SourceScanner):
                             g["cwe"].append(c)
                     g["installs"].append({
                         "package": name, "version": version,
-                        "ecosystem": ecosystem, "kind": kind,
+                        "ecosystem": ecosystem, "kind": kind, "via": via,
                     })
                     for f in _fixed_versions(vuln):
                         if f not in g["fixed"]:
@@ -165,15 +225,27 @@ class OsvScanner(SourceScanner):
             names = sorted({i["package"] for i in installs})
             head = names[0] + (f" +{len(names) - 1} more" if len(names) > 1 else "")
             n = len(installs)
-            shown = ", ".join(
-                f"{i['package']}@{i['version']} ({i['kind']})" for i in installs[:8]
-            ) + (f" +{n - 8} more" if n > 8 else "")
+
+            def _label(i: dict) -> str:
+                base = f"{i['package']}@{i['version']}"
+                if i["kind"] == "direct":
+                    return f"{base} (direct)"
+                if i["kind"] == "transitive":
+                    via = f" via {', '.join(i['via'])}" if i.get("via") else ""
+                    return f"{base} (transitive{via})"
+                return base
+
+            shown = ", ".join(_label(i) for i in installs[:8]) + (f" +{n - 8} more" if n > 8 else "")
             directs = sorted({i["package"] for i in installs if i["kind"] == "direct"})
+            via_names = sorted({v for i in installs for v in (i.get("via") or []) if v != "(root)"})
             if directs:
                 rec = f"Bump {', '.join(directs)} in package.json"
                 if g["fixed"]:
                     rec += f" to {', '.join('>=' + f for f in g['fixed'])}"
                 rec += "; then `npm audit fix` to clear transitive copies."
+            elif via_names:
+                rec = f"Pulled in via {', '.join(via_names[:3])} — `npm audit fix`, or bump {via_names[0]}"
+                rec += f" past {', '.join('>=' + f for f in g['fixed'])}." if g["fixed"] else " to a patched release."
             elif g["fixed"]:
                 rec = f"Transitive only — `npm audit fix` or bump the parent to reach {', '.join('>=' + f for f in g['fixed'])}."
             else:
