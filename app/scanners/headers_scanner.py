@@ -56,8 +56,17 @@ class HeadersScanner(BaseScanner):
     name = "headers"
 
     def run(self) -> list[Finding]:
+        # Authenticated scans (v1): session injection on both requests.
+        extra = self.auth_headers()
+        jar = dict(self.auth.cookies) if self.auth else {}
         try:
-            r = httpx.get(self.target_url, follow_redirects=True, timeout=15.0)
+            r = httpx.get(
+                self.target_url,
+                headers=extra or None,
+                cookies=jar or None,
+                follow_redirects=True,
+                timeout=15.0,
+            )
             headers = dict(r.headers)
             status = r.status_code
         except Exception as exc:
@@ -69,7 +78,8 @@ class HeadersScanner(BaseScanner):
         try:
             rc = httpx.get(
                 self.target_url,
-                headers={"Origin": "https://evil.example"},
+                headers={"Origin": "https://evil.example", **extra},
+                cookies=jar or None,
                 follow_redirects=True,
                 timeout=15.0,
             )

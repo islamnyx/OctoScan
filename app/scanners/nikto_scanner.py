@@ -1,12 +1,13 @@
 import ipaddress
 import json
+import re
 import subprocess
 
 import httpx
 
 from app.config import settings
 from app.models import Finding, Severity
-from app.scanners.base import BaseScanner
+from app.scanners.base import BaseScanner, assert_target_reachable
 
 
 # Nikto emits no severity — map by ID/keywords. Header findings (013587)
@@ -99,6 +100,14 @@ class NiktoScanner(BaseScanner):
 
     def run(self) -> list[Finding]:
         out_base = self.workdir / "nikto"
+        # Start fresh: stale output from a previous attempt would be
+        # mistaken for this run's results (same class of bug as
+        # testssl's --jsonfile append refusal, fixed 2026-09-16).
+        for stale in self.workdir.glob("nikto*.json*"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
         # Nikto silently writes empty output when the host resolves to
         # IPv6 first (e.g. `localhost` -> ::1) while the app listens on
         # IPv4. Pin loopback to 127.0.0.1 for the probe only; findings
@@ -136,6 +145,13 @@ class NiktoScanner(BaseScanner):
             "-Tuning",
             "x6",  # all except DoS
         ]
+        # Authenticated scans (v1): session injection via extra headers.
+        if self.auth:
+            for h, v in self.auth_headers().items():
+                cmd += ["-Add-header", f"{h}: {v}"]
+            cookie = self.auth_cookie_header()
+            if cookie:
+                cmd += ["-Add-header", f"Cookie: {cookie}"]
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -144,7 +160,16 @@ class NiktoScanner(BaseScanner):
         )
         out_path = self._find_output(out_base)
         if out_path is None or out_path.stat().st_size == 0:
+            # JSON report plugin crashed (0-byte file) but stdout usually
+            # still carries every finding — parse that instead of failing.
+            std_items = self._stdout_items(proc.stdout or "")
+            if std_items:
+                return self._build_findings(std_items)
             detail = proc.stderr.strip() or proc.stdout.strip() or "no output written"
+            try:
+                assert_target_reachable(self.target_url)
+            except RuntimeError as conn_exc:
+                raise RuntimeError(str(conn_exc)) from None
             raise RuntimeError(f"nikto produced no output for {self.target_url}: {detail[-200:]}")
         return self._parse(out_path)
 
@@ -183,11 +208,36 @@ class NiktoScanner(BaseScanner):
         except Exception:
             return False
 
-    def _parse(self, path) -> list[Finding]:
-        findings: list[Finding] = []
-        speculative_catchall: list[dict] = []
-        seen: set[tuple[str, str, str, str]] = set()
-        payload = json.loads(path.read_text())
+    # nikto 2.6's JSON report plugin crashes with a 0-byte file on some
+    # findings — verified 2026-09-16: id 999984 (ETag inode leak) kills
+    # nikto_report_json.plugin:113 ("allow_blessed" error).
+    _STDOUT_RE = re.compile(r"^\+\s*\[(\d+)\]\s*([^\s:]+)\s*:?\s*(.*)$")
+    _SEE_RE = re.compile(r"See:\s*(\S+)", re.IGNORECASE)
+
+    @classmethod
+    def _stdout_items(cls, text: str) -> list[dict]:
+        """Finding dicts from nikto's stdout (`+ [id] path: msg` lines)."""
+        items: list[dict] = []
+        for line in (text or "").splitlines():
+            m = cls._STDOUT_RE.match(line.strip())
+            if not m:
+                continue
+            msg = m.group(3).strip() or "Nikto finding"
+            see = cls._SEE_RE.search(msg)
+            items.append(
+                {
+                    "id": m.group(1),
+                    "method": "",
+                    "url": m.group(2),
+                    "msg": msg,
+                    "references": see.group(1) if see else "",
+                }
+            )
+        return items
+
+    @staticmethod
+    def _json_items(payload) -> list[dict]:
+        items: list[dict] = []
         hosts = payload if isinstance(payload, list) else [payload]
         for host in hosts:
             vulns = host.get("vulnerabilities", host) if isinstance(host, dict) else []
@@ -196,59 +246,79 @@ class NiktoScanner(BaseScanner):
             if not isinstance(vulns, list):
                 continue
             for item in vulns:
-                if not isinstance(item, dict):
-                    continue
-                vid = str(item.get("id") or "")
-                method = str(item.get("method") or "")
-                rel_url = str(item.get("url") or "/")
-                msg = str(item.get("msg") or "Nikto finding")
-                # Same id can repeat for different messages (e.g. one
-                # 013587 per missing header) — include msg in the key.
-                key = (vid, method, rel_url, msg)
-                if key in seen:
-                    continue
-                seen.add(key)
-                location = self.target_url.rstrip("/") + rel_url
-                short = _smart_truncate(msg, 100)
-                severity = _severity(vid, msg)
-                description = msg
-                recommendation = _recommendation(msg, item.get("references"))
-                is_speculative = msg.lower().strip().rstrip(".") == "this might be interesting"
-                needs_catchall_check = (
-                    vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS or is_speculative
-                ) and rel_url != "/"
-                is_catchall = self._is_spa_catchall(location) if needs_catchall_check else False
-                if is_speculative and is_catchall:
-                    # Collapse later: one aggregated finding for all
-                    # catch-all-confirmed guesses, not one row per path.
-                    speculative_catchall.append(
-                        {"nikto_id": vid, "method": method, "url": rel_url, "location": location}
-                    )
-                    continue
-                fp_note = ""
-                if is_catchall and (vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS):
-                    severity = Severity.info
-                    fp_note = (
-                        " [Likely false positive: this path returns content identical to /. "
-                        "The server serves its SPA shell for unknown paths, so no such file "
-                        "was actually fingerprinted. Verify manually before acting.]"
-                    )
-                    recommendation = (
-                        "Likely false positive on SPA catch-all servers — confirm by fetching "
-                        "the path and diffing against /. " + recommendation
-                    )
-                findings.append(
-                    Finding(
-                        scanner=self.name,
-                        title=f"Nikto {vid}: {short}" if vid else short,
-                        severity=severity,
-                        description=description + fp_note,
-                        evidence=f"{method} {rel_url}".strip(),
-                        location=location,
-                        recommendation=recommendation,
-                        raw={"nikto_id": vid, "method": method, "url": rel_url},
-                    )
+                if isinstance(item, dict):
+                    items.append(item)
+        return items
+
+    def _parse(self, path) -> list[Finding]:
+        return self._build_findings(self._json_items(json.loads(path.read_text())))
+
+    def _build_findings(self, items: list[dict]) -> list[Finding]:
+        findings: list[Finding] = []
+        speculative_catchall: list[dict] = []
+        connect_failures: list[str] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            vid = str(item.get("id") or "")
+            method = str(item.get("method") or "")
+            rel_url = str(item.get("url") or "/")
+            msg = str(item.get("msg") or "Nikto finding")
+            # Nikto never connected at all — the whole run is void.
+            # Previously this became a low "Nikto FAIL" finding and the
+            # scan looked like it ran. Raise so the pipeline retries
+            # once and otherwise records a visible error.
+            if vid == "FAIL" and "unable to connect" in msg.lower():
+                connect_failures.append(msg)
+                continue
+            # Same id can repeat for different messages (e.g. one
+            # 013587 per missing header) — include msg in the key.
+            key = (vid, method, rel_url, msg)
+            if key in seen:
+                continue
+            seen.add(key)
+            location = self.target_url.rstrip("/") + rel_url
+            short = _smart_truncate(msg, 100)
+            severity = _severity(vid, msg)
+            description = msg
+            recommendation = _recommendation(msg, item.get("references"))
+            is_speculative = msg.lower().strip().rstrip(".") == "this might be interesting"
+            needs_catchall_check = (
+                vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS or is_speculative
+            ) and rel_url != "/"
+            is_catchall = self._is_spa_catchall(location) if needs_catchall_check else False
+            if is_speculative and is_catchall:
+                # Collapse later: one aggregated finding for all
+                # catch-all-confirmed guesses, not one row per path.
+                speculative_catchall.append(
+                    {"nikto_id": vid, "method": method, "url": rel_url, "location": location}
                 )
+                continue
+            fp_note = ""
+            if is_catchall and (vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS):
+                severity = Severity.info
+                fp_note = (
+                    " [Likely false positive: this path returns content identical to /. "
+                    "The server serves its SPA shell for unknown paths, so no such file "
+                    "was actually fingerprinted. Verify manually before acting.]"
+                )
+                recommendation = (
+                    "Likely false positive on SPA catch-all servers — confirm by fetching "
+                    "the path and diffing against /. " + recommendation
+                )
+            findings.append(
+                Finding(
+                    scanner=self.name,
+                    title=f"Nikto {vid}: {short}" if vid else short,
+                    severity=severity,
+                    description=description + fp_note,
+                    evidence=f"{method} {rel_url}".strip(),
+                    location=location,
+                    recommendation=recommendation,
+                    raw={"nikto_id": vid, "method": method, "url": rel_url},
+                )
+            )
         if speculative_catchall:
             # One row instead of N: guessed filenames all returned the SPA
             # shell (HTTP 200, body identical to /). Genuinely distinct
@@ -283,6 +353,18 @@ class NiktoScanner(BaseScanner):
                         "merged_concept": "nikto-speculative-paths",
                     },
                 )
+            )
+        if connect_failures and not findings and not speculative_catchall:
+            # Probe to sharpen the message (still down vs transient), then
+            # raise either way — a run that never connected has no findings.
+            try:
+                assert_target_reachable(self.target_url)
+                detail = "target answers now, so the failure was transient"
+            except RuntimeError:
+                detail = "target still unreachable"
+            raise RuntimeError(
+                f"CONNECTION FAILURE: nikto could not connect to {self.target_url}: "
+                f"{connect_failures[0]} ({detail})"
             )
         if not findings:
             findings.append(

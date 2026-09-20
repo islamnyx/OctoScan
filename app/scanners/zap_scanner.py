@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import time
 from urllib.parse import urlparse, urlunparse
 
@@ -67,6 +68,7 @@ class ZapScanner(BaseScanner):
         base = settings.zap_base_url
         client = httpx.Client(timeout=30.0)
         target = self.target_url
+        auth_rules: list[str] = []
         try:
             # Fail-closed on open daemons: if the version endpoint answers
             # WITHOUT a key, the daemon runs with api.disablekey=true and
@@ -98,6 +100,12 @@ class ZapScanner(BaseScanner):
                 )
             except Exception:
                 pass
+            # Authenticated scans (v1): inject the session into ALL ZAP
+            # traffic (spider + ascan) via replacer request-header rules.
+            # Verified 2026-09-16: REQ_HEADER rules fire even when the
+            # header is absent, including on API-initiated requests.
+            # Removed in the outer finally so sessions never leak scans.
+            auth_rules = self._apply_auth_rules(client, base, api_key)
             client.get(
                 f"{base}/JSON/core/action/accessUrl/",
                 params={"apikey": api_key, "url": target, "followRedirects": "true"},
@@ -149,49 +157,57 @@ class ZapScanner(BaseScanner):
             ascan_targets = self._select_ascan_targets(client, base, api_key, target, scan_target)
             ascan_skipped = None
             scanned = 0
-            # Shared budget (timeout fix 2026-09-13): dividing 900s by 20
-            # targets gave 60s each, but one Juice Shop host alone needs
-            # 103s -> every scan timed out. Now one total budget for all
-            # targets, up to 300s per target, stop cleanly when exhausted.
+            # Shared budget: one total budget for all targets (per-target
+            # timeouts lost whole scans before). Throttled threads + per-target
+            # cap below let all 20 targets get a turn without flooding the target.
             ascan_budget = min(settings.zap_ascan_budget_seconds, max(300, settings.scan_timeout_seconds // 2))
             ascan_deadline = time.time() + ascan_budget
+            # Gentle but thorough (2026-09-16): throttle the shared daemon
+            # for this scan, restore afterwards in finally.
+            prev_throttle = self._throttle_ascan(client, base, api_key)
             try:
-                for i, t in enumerate(ascan_targets, 1):
-                    self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
-                    remaining = ascan_deadline - time.time()
-                    if remaining < 30:
-                        ascan_skipped = (
-                            f"ascan budget exhausted after {scanned}/{len(ascan_targets)} targets "
-                            f"({int(ascan_budget)}s shared budget); passive/spider results for the rest"
+                try:
+                    for i, t in enumerate(ascan_targets, 1):
+                        self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
+                        remaining = ascan_deadline - time.time()
+                        if remaining < 30:
+                            ascan_skipped = (
+                                f"ascan budget exhausted after {scanned}/{len(ascan_targets)} targets "
+                                f"({int(ascan_budget)}s shared budget); passive/spider results for the rest"
+                            )
+                            break
+                        ascan = client.get(
+                            f"{base}/JSON/ascan/action/scan/",
+                            params={
+                                "apikey": api_key,
+                                "url": t,
+                                "recurse": "true" if settings.zap_ascan_recurse else "false",
+                            },
                         )
-                        break
-                    ascan = client.get(
-                        f"{base}/JSON/ascan/action/scan/",
-                        params={
-                            "apikey": api_key,
-                            "url": t,
-                            "recurse": "true" if settings.zap_ascan_recurse else "false",
-                        },
-                    )
-                    ascan.raise_for_status()
-                    ascan_id = str(ascan.json().get("scan") or "")
-                    self._wait_scan(
-                        client, f"{base}/JSON/ascan/view/status/", api_key, ascan_id,
-                        timeout_s=int(min(settings.zap_ascan_per_target_seconds, remaining)),
-                    )
-                    scanned += 1
-                if not ascan_targets:
-                    ascan_skipped = "no dynamic targets in tree; passive/spider results only"
-            except Exception as exc:
-                # Timeout or url_not_found: keep partial ascan results and
-                # fall back to passive/spider alerts instead of failing the
-                # whole scanner (last scan lost all ZAP findings on a 60s
-                # per-target timeout). Only unknown errors still raise.
-                msg = str(exc).lower()
-                if "timed out" in msg or "url_not_found" in msg or "400" in msg:
-                    ascan_skipped = str(exc)[:200] + f" (partial: {scanned}/{len(ascan_targets)} targets scanned)"
-                else:
-                    raise
+                        ascan.raise_for_status()
+                        ascan_id = str(ascan.json().get("scan") or "")
+                        self._wait_scan(
+                            client, f"{base}/JSON/ascan/view/status/", api_key, ascan_id,
+                            timeout_s=int(min(settings.zap_ascan_per_target_seconds, remaining)),
+                        )
+                        scanned += 1
+                    if not ascan_targets:
+                        ascan_skipped = "no dynamic targets in tree; passive/spider results only"
+                except Exception as exc:
+                    # Timeout or url_not_found: keep partial ascan results and
+                    # fall back to passive/spider alerts instead of failing the
+                    # whole scanner (last scan lost all ZAP findings on a 60s
+                    # per-target timeout). Only unknown errors still raise.
+                    msg = str(exc).lower()
+                    if "timed out" in msg or "url_not_found" in msg or "400" in msg:
+                        # httpx errors embed the request URL incl. ?apikey=… —
+                        # never persist the key in job.json/coverage.
+                        safe = re.sub(r"apikey=[^&\s'\"]+", "apikey=***", str(exc))
+                        ascan_skipped = safe[:200] + f" (partial: {scanned}/{len(ascan_targets)} targets scanned)"
+                    else:
+                        raise
+            finally:
+                self._restore_throttle(client, base, api_key, prev_throttle)
             alerts = client.get(
                 f"{base}/JSON/core/view/alerts/",
                 params={"apikey": api_key, "baseurl": target},
@@ -218,7 +234,107 @@ class ZapScanner(BaseScanner):
             findings = self._parse(data.get("alerts", []))
             return findings
         finally:
+            # Session hygiene: auth rules must not survive into later scans.
+            try:
+                self._clear_auth_rules(client, base, api_key, auth_rules)
+            except Exception:
+                pass
             client.close()
+
+    def _throttle_ascan(self, client: httpx.Client, base: str, api_key: str) -> tuple[int, int]:
+        """Save the daemon's ascan throttle, apply ours. Best-effort.
+
+        The daemon is shared across scans; the caller restores the previous
+        values in a finally block. Returns (threads, delay_ms).
+        """
+        prev: tuple[int, int] = (24, 0)
+        try:
+            t = client.get(f"{base}/JSON/ascan/view/optionThreadPerHost/", params={"apikey": api_key})
+            d = client.get(f"{base}/JSON/ascan/view/optionDelayInMs/", params={"apikey": api_key})
+            prev = (int(t.json().get("ThreadPerHost", 24)), int(d.json().get("DelayInMs", 0)))
+        except Exception:
+            pass
+        try:
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionThreadPerHost/",
+                params={"apikey": api_key, "Integer": settings.zap_ascan_thread_per_host},
+            )
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionDelayInMs/",
+                params={"apikey": api_key, "Integer": settings.zap_ascan_delay_ms},
+            )
+            self._activity(
+                f"ascan throttle: {settings.zap_ascan_thread_per_host} threads/host, "
+                f"{settings.zap_ascan_delay_ms}ms delay (was {prev[0]}/{prev[1]})"
+            )
+        except Exception:
+            pass
+        return prev
+
+    def _restore_throttle(
+        self, client: httpx.Client, base: str, api_key: str, prev: tuple[int, int]
+    ) -> None:
+        """Restore daemon throttle values saved by _throttle_ascan. Best-effort."""
+        try:
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionThreadPerHost/",
+                params={"apikey": api_key, "Integer": prev[0]},
+            )
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionDelayInMs/",
+                params={"apikey": api_key, "Integer": prev[1]},
+            )
+        except Exception:
+            pass
+
+    def _apply_auth_rules(self, client: httpx.Client, base: str, api_key: str) -> list[str]:
+        """Inject session headers into all ZAP traffic. Returns rule descriptions.
+
+        Uses replacer request-header rules scoped to the target host
+        (verified live 2026-09-16 against a header-echo server). Caller
+        removes them via _clear_auth_rules in a finally block.
+        """
+        if not self.auth or (not self.auth.cookies and not self.auth.headers):
+            return []
+        scope = f".*{re.escape(self.host)}.*"
+        pairs = [(k, v) for k, v in self.auth_headers().items()]
+        cookie = self.auth_cookie_header()
+        if cookie:
+            pairs.append(("Cookie", cookie))
+        added: list[str] = []
+        for name, value in pairs:
+            desc = f"octoscan-auth-{self.workdir.name}-{name}"
+            try:
+                client.get(
+                    f"{base}/JSON/replacer/action/addRule/",
+                    params={
+                        "apikey": api_key,
+                        "description": desc,
+                        "enabled": "true",
+                        "matchType": "REQ_HEADER",
+                        "matchString": name,
+                        "matchRegex": "false",
+                        "replacement": value,
+                        "initiators": "",
+                        "url": scope,
+                    },
+                )
+                added.append(desc)
+                self._activity(f"auth injected into ZAP traffic: {name}")
+            except Exception:
+                pass
+        return added
+
+    def _clear_auth_rules(self, client: httpx.Client, base: str, api_key: str, rules: list[str]) -> None:
+        """Remove replacer rules added by _apply_auth_rules. Best-effort."""
+        for desc in rules:
+            try:
+                client.get(
+                    f"{base}/JSON/replacer/action/removeRule/",
+                    params={"apikey": api_key, "description": desc},
+                )
+            except Exception:
+                pass
 
     def _wait_scan(self, client: httpx.Client, url: str, api_key: str, scan_id: str = "", timeout_s: int = 0) -> None:
         """Poll a %-status endpoint until 100, scoped to scan_id when known."""

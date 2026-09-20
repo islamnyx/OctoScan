@@ -97,37 +97,45 @@ def _classify(url: str) -> tuple[Severity, str, str] | None:
     return None
 
 
-def _get(url: str) -> tuple[int | None, bytes | None, str]:
+Auth = tuple[dict[str, str], dict[str, str]] | None
+"""Session injection passthrough: (headers, cookies) or None (anonymous)."""
+
+
+def _get(url: str, auth: Auth = None) -> tuple[int | None, bytes | None, str]:
     """Single GET primitive: (status, body, final-url); (None, None, url) on error."""
     try:
         import httpx
 
-        r = httpx.get(url, follow_redirects=True, timeout=10.0)
+        headers, cookies = auth or ({}, {})
+        r = httpx.get(
+            url, headers=headers or None, cookies=cookies or None,
+            follow_redirects=True, timeout=10.0,
+        )
         return r.status_code, r.content, str(r.url)
     except Exception:
         return None, None, url
 
 
-def _fetch_status_body(url: str) -> tuple[int | None, bytes | None]:
+def _fetch_status_body(url: str, auth: Auth = None) -> tuple[int | None, bytes | None]:
     """Best-effort GET. Returns (status_code, body); (None, None) on any error.
 
     Fail-open lives with the caller: network errors (None) keep the HIGH,
     definitive non-200 (403/404/…) demotes to INFO — verified 2026-09-13:
     Juice Shop 403s /ftp/*.bak|*.pyc|*.yml while .kdbx returns 200.
     """
-    status, body, _ = _get(url)
+    status, body, _ = _get(url, auth)
     return status, body
 
 
-def _fetch_body(url: str) -> bytes | None:
+def _fetch_body(url: str, auth: Auth = None) -> bytes | None:
     """Back-compat wrapper: body only when HTTP 200, else None."""
-    status, body = _fetch_status_body(url)
+    status, body = _fetch_status_body(url, auth)
     return body if status == 200 else None
 
 
-def _fetch(url: str) -> tuple[bytes | None, str]:
+def _fetch(url: str, auth: Auth = None) -> tuple[bytes | None, str]:
     """Best-effort GET for probes. Returns (body-or-None-on-non-200/error, final-url)."""
-    status, body, final = _get(url)
+    status, body, final = _get(url, auth)
     if status != 200:
         return None, final
     return body, final
@@ -187,7 +195,7 @@ WELLKNOWN_PROBES: list[tuple[str, str, Severity, object, str]] = [
 ]
 
 
-def probe_wellknown(target_url: str) -> list[Finding]:
+def probe_wellknown(target_url: str, auth: Auth = None) -> list[Finding]:
     """Fetch a handful of high-value paths and verify their content.
 
     Pure active check — runs even when no other scanner discovered any
@@ -202,11 +210,11 @@ def probe_wellknown(target_url: str) -> list[Finding]:
     if not target_host:
         return out
     base = target_url.rstrip("/")
-    root_body = _fetch_body(target_url)
+    root_body = _fetch_body(target_url, auth)
     for path, label, severity, check, why in WELLKNOWN_PROBES:
         url = base + path
         try:
-            body, final = _fetch(url)
+            body, final = _fetch(url, auth)
             if body is None:
                 continue
             try:
@@ -244,7 +252,9 @@ def probe_wellknown(target_url: str) -> list[Finding]:
     return out
 
 
-def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Finding]:
+def flag_sensitive_files(
+    target_url: str, findings: list[Finding], auth: Auth = None
+) -> list[Finding]:
     """Build one finding per exposed sensitive file found in discovered URLs."""
     try:
         target_host = (urlparse(target_url).hostname or "").lower()
@@ -285,10 +295,10 @@ def flag_sensitive_files(target_url: str, findings: list[Finding]) -> list[Findi
         if classified is None:
             continue
         if not root_fetched:
-            root_body = _fetch_body(target_url)
+            root_body = _fetch_body(target_url, auth)
             root_fetched = True
         if root_body is not None:
-            status, body = _fetch_status_body(url)
+            status, body = _fetch_status_body(url, auth)
             if status is not None and status != 200:
                 # Definitive negative: pattern matched but server refuses
                 # (Juice Shop: 403 on *.bak/*.pyc/*.yml, 200 on .kdbx).

@@ -32,9 +32,19 @@ class Settings(BaseSettings):
     # Shared ascan budget (timeout fix 2026-09-13): one total budget for all
     # targets instead of dividing per-target (60s each timed out on Juice
     # Shop's 103s/host). Env-overridable so full-strength validation runs
-    # can raise it without code changes; capped saved us from OOM, keep 600.
-    zap_ascan_budget_seconds: int = 600
-    zap_ascan_per_target_seconds: int = 300
+    # can raise it without code changes.
+    # Full-coverage tune 2026-09-16: 4/20 targets in 450s meant slow hosts
+    # ate the budget. Now a longer shared budget (1200s) with a tighter
+    # per-target cap (150s) plus throttled threads (below) so all 20 get a
+    # turn without hammering the target (lab flapping on 2026-09-16) or RAM.
+    zap_ascan_budget_seconds: int = 1200
+    zap_ascan_per_target_seconds: int = 150
+    # Active-scan politeness (2026-09-16): default 24 threads/host floods
+    # small lab targets into crashes/rate-limits. 6 threads + 50ms delay
+    # keeps full template depth at lower pressure. Set per-scan via the ZAP
+    # API (previous daemon values restored afterwards).
+    zap_ascan_thread_per_host: int = 6
+    zap_ascan_delay_ms: int = 50
     nuclei_severity: str = "critical,high,medium,low"
     # Don't DoS the target: full template set at nuclei defaults (25
     # concurrent, 150 req/s) OOM-killed Juice Shop in testing (3 GB heap).

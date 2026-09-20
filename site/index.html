@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIMAYA — Le bouclier pré-lancement des startups algériennes</title>
+<meta name="description" content="HIMAYA حماية — audit de sécurité pré-lancement pour startups algériennes. 6 moteurs, un verdict, zéro jargon.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Naskh+Arabic:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#050807; --panel:#0a0f0c; --panel2:#0d1410;
+  --emerald:#00e67a; --emerald-dim:#00a657; --dzgreen:#0b5c3f;
+  --blood:#ff2d4d; --amber:#ffb224; --ice:#e8f5ec;
+  --mut:#8fa598; --line:rgba(0,230,122,.14); --line2:rgba(232,245,236,.09);
+  --grot:'Space Grotesk',sans-serif; --mono:'IBM Plex Mono',monospace; --ar:'Noto Naskh Arabic',serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--void);color:var(--ice);font-family:var(--grot);overflow-x:hidden;-webkit-font-smoothing:antialiased}
+::selection{background:var(--emerald);color:#031008}
+a{color:inherit;text-decoration:none}
+/* ---------- preloader ---------- */
+#loader{position:fixed;inset:0;background:var(--void);z-index:200;display:flex;flex-direction:column;gap:18px;align-items:center;justify-content:center;transition:opacity .6s,visibility .6s}
+#loader.done{opacity:0;visibility:hidden}
+#loader .lg{width:54px;height:54px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.12);opacity:.65}}
+#loadbar{width:210px;height:2px;background:#12231a;overflow:hidden}
+#loadbar i{display:block;height:100%;width:0;background:var(--emerald)}
+#loader p{font-family:var(--mono);font-size:11px;letter-spacing:.35em;color:var(--mut)}
+/* ---------- nav ---------- */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:16px 4vw;backdrop-filter:blur(14px);background:rgba(5,8,7,.62);border-bottom:1px solid var(--line2)}
+.brand{display:flex;align-items:center;gap:11px}
+.brand img{width:32px;height:32px}
+.brand b{font-weight:700;letter-spacing:.22em;font-size:15px}
+.brand small{font-family:var(--ar);color:var(--emerald);font-size:15px}
+.links{display:flex;gap:30px;font-family:var(--mono);font-size:12px;letter-spacing:.12em;color:var(--mut)}
+.links a{position:relative;padding:4px 0;transition:color .25s}
+.links a:hover{color:var(--emerald)}
+.links a::after{content:"";position:absolute;left:0;bottom:0;height:1px;width:0;background:var(--emerald);transition:width .3s}
+.links a:hover::after{width:100%}
+.nact{display:flex;gap:12px;align-items:center}
+.lang{display:flex;border:1px solid var(--line);border-radius:99px;overflow:hidden;font-family:var(--mono);font-size:11px}
+.lang button{background:none;border:0;color:var(--mut);padding:7px 13px;cursor:pointer;letter-spacing:.1em}
+.lang button.on{background:var(--emerald);color:#031008;font-weight:600}
+.btn{display:inline-block;font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;padding:13px 26px;border:1px solid var(--emerald);color:var(--emerald);border-radius:3px;position:relative;overflow:hidden;transition:color .3s;cursor:pointer;background:transparent}
+.btn::before{content:"";position:absolute;inset:0;background:var(--emerald);transform:scaleX(0);transform-origin:left;transition:transform .35s cubic-bezier(.7,0,.2,1);z-index:-1}
+.btn:hover{color:#031008}.btn:hover::before{transform:scaleX(1)}
+.btn.solid{background:var(--emerald);color:#031008;font-weight:600}
+.btn.solid::before{background:#fff}
+@media(max-width:860px){.links{display:none}}
+/* ---------- hero ---------- */
+#hero{position:relative;min-height:100svh;display:flex;align-items:flex-end;overflow:hidden}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hero .veil{position:absolute;inset:0;background:radial-gradient(120% 90% at 70% 20%,transparent 30%,rgba(5,8,7,.55) 70%,var(--void) 100%),linear-gradient(to top,var(--void) 2%,transparent 30%);pointer-events:none}
+.hwrap{position:relative;z-index:2;width:100%;padding:0 4vw 7vh}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.4em;color:var(--emerald);display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.eyebrow::before{content:"";width:44px;height:1px;background:var(--emerald)}
+h1{font-size:clamp(56px,11vw,168px);line-height:.92;font-weight:700;letter-spacing:-.02em}
+h1 .stroke{color:transparent;-webkit-text-stroke:1.5px var(--emerald)}
+h1 .ar{font-family:var(--ar);font-weight:600;color:var(--emerald);letter-spacing:0}
+.tag{margin-top:20px;max-width:640px;font-size:clamp(16px,2vw,21px);font-weight:300;color:#c4d6c9;line-height:1.55}
+.tag strong{color:var(--ice);font-weight:600}
+.hcta{display:flex;gap:16px;margin-top:34px;flex-wrap:wrap}
+.hstats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);margin-top:44px;max-width:1060px}
+.hstats div{background:rgba(5,8,7,.78);padding:20px 22px;backdrop-filter:blur(6px)}
+.hstats b{display:block;font-size:clamp(22px,3vw,36px);font-weight:700;color:var(--emerald);font-variant-numeric:tabular-nums}
+.hstats span{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--mut)}
+.hstats .pass b{color:var(--emerald);text-shadow:0 0 24px rgba(0,230,122,.5)}
+.scrollcue{position:absolute;right:4vw;bottom:7vh;z-index:2;font-family:var(--mono);font-size:10px;letter-spacing:.4em;color:var(--mut);writing-mode:vertical-rl;animation:bob 2s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(10px)}}
+@media(max-width:760px){.hstats{grid-template-columns:1fr 1fr}.scrollcue{display:none}}
+/* ---------- marquee ---------- */
+.mq{border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);overflow:hidden;white-space:nowrap;padding:15px 0;background:var(--panel)}
+.mq div{display:inline-block;animation:mq 26s linear infinite;font-family:var(--mono);font-size:13px;letter-spacing:.3em;color:var(--mut)}
+.mq div b{color:var(--emerald);margin:0 22px;font-weight:500}
+@keyframes mq{to{transform:translateX(-50%)}}
+/* ---------- sections ---------- */
+section{padding:13vh 4vw;position:relative;max-width:1340px;margin:0 auto}
+.snum{font-family:var(--mono);font-size:12px;letter-spacing:.4em;color:var(--blood);margin-bottom:16px}
+h2{font-size:clamp(34px,5.4vw,72px);line-height:1.02;letter-spacing:-.02em;font-weight:700;max-width:16ch}
+h2 em{font-style:normal;color:var(--emerald)}
+.sub{margin-top:16px;color:var(--mut);max-width:60ch;line-height:1.65;font-size:16px}
+/* protocol */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:56px}
+.step{border:1px solid var(--line2);background:linear-gradient(180deg,var(--panel2),var(--panel));padding:34px 30px;position:relative;transition:transform .35s,border-color .35s;overflow:hidden}
+.step:hover{transform:translateY(-8px);border-color:var(--line)}
+.step::after{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--emerald),transparent);opacity:0;transition:opacity .35s}
+.step:hover::after{opacity:1}
+.step .n{font-family:var(--mono);font-size:52px;font-weight:600;color:transparent;-webkit-text-stroke:1px rgba(0,230,122,.45)}
+.step h3{margin:18px 0 12px;font-size:21px}
+.step p{color:var(--mut);font-size:14.5px;line-height:1.7}
+.step .tag2{display:inline-block;margin-top:16px;font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--emerald);border:1px solid var(--line);padding:6px 12px;border-radius:99px}
+@media(max-width:900px){.steps{grid-template-columns:1fr}}
+/* engines */
+.eng{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:56px}
+.card{border:1px solid var(--line2);background:var(--panel);padding:30px;position:relative;overflow:hidden;transition:border-color .3s,transform .3s}
+.card:hover{border-color:var(--emerald);transform:translateY(-6px)}
+.card .idx{font-family:var(--mono);font-size:11px;color:var(--blood);letter-spacing:.25em}
+.card h3{font-family:var(--mono);font-size:22px;margin:12px 0 10px;letter-spacing:.02em}
+.card h3 i{font-style:normal;color:var(--emerald)}
+.card p{color:var(--mut);font-size:14px;line-height:1.7}
+.card .spec{margin-top:18px;padding-top:16px;border-top:1px dashed var(--line2);font-family:var(--mono);font-size:11px;color:var(--mut);line-height:2}
+.card .spec b{color:var(--ice)}
+.gate{grid-column:1/-1;border:1px solid rgba(255,45,77,.4);background:linear-gradient(120deg,rgba(255,45,77,.09),transparent 60%),var(--panel);display:flex;gap:26px;align-items:center;padding:30px;flex-wrap:wrap}
+.gate .big{font-family:var(--mono);font-weight:600;font-size:clamp(20px,3vw,30px);color:var(--blood);letter-spacing:.06em}
+@media(max-width:900px){.eng{grid-template-columns:1fr}}
+/* proof / terminal */
+#preuve{background:var(--panel);border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);max-width:none}
+#preuve .inner{max-width:1340px;margin:0 auto}
+.term{margin-top:50px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#030604;box-shadow:0 30px 80px rgba(0,0,0,.5),0 0 60px rgba(0,230,122,.06)}
+.term .bar{display:flex;gap:8px;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line2);background:#070c09}
+.dot{width:11px;height:11px;border-radius:50%}
+.term .bar span.t{margin-left:10px;font-family:var(--mono);font-size:11.5px;color:var(--mut);letter-spacing:.1em}
+#termbody{padding:26px 26px 34px;font-family:var(--mono);font-size:13.5px;line-height:2;min-height:340px;white-space:pre-wrap}
+#termbody .g{color:var(--emerald)} #termbody .r{color:var(--blood)} #termbody .a{color:var(--amber)} #termbody .d{color:var(--mut)}
+.caret{display:inline-block;width:9px;height:17px;background:var(--emerald);vertical-align:-3px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.finds{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:26px}
+.find{border:1px solid var(--line2);background:var(--panel2);padding:18px 20px;display:flex;gap:15px;align-items:flex-start;font-size:14px}
+.sev{font-family:var(--mono);font-size:10px;letter-spacing:.15em;padding:5px 10px;border-radius:3px;flex-shrink:0;margin-top:2px}
+.sev.M{background:rgba(255,178,36,.14);color:var(--amber);border:1px solid rgba(255,178,36,.4)}
+.sev.L{background:rgba(0,230,122,.1);color:var(--emerald);border:1px solid var(--line)}
+.sev.I{background:rgba(143,165,152,.12);color:var(--mut);border:1px solid var(--line2)}
+.find small{display:block;color:var(--mut);font-family:var(--mono);font-size:11.5px;margin-top:6px}
+@media(max-width:900px){.finds{grid-template-columns:1fr}}
+/* pricing */
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:56px;align-items:stretch}
+.plan{border:1px solid var(--line2);background:var(--panel);padding:38px 34px;display:flex;flex-direction:column;transition:transform .3s,border-color .3s}
+.plan:hover{transform:translateY(-8px)}
+.plan.hot{border-color:var(--emerald);background:linear-gradient(180deg,rgba(0,230,122,.07),var(--panel) 55%);position:relative}
+.plan.hot::before{content:attr(data-badge);position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--emerald);color:#031008;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.2em;padding:5px 16px;border-radius:99px;white-space:nowrap}
+.plan h3{font-family:var(--mono);font-size:13px;letter-spacing:.3em;color:var(--mut)}
+.plan .pr{font-size:52px;font-weight:700;margin:16px 0 4px}
+.plan .pr small{font-size:15px;color:var(--mut);font-weight:400}
+.plan ul{list-style:none;margin:24px 0 30px;flex:1}
+.plan li{padding:9px 0;border-bottom:1px dashed var(--line2);font-size:14px;color:#c4d6c9}
+.plan li::before{content:"▸ ";color:var(--emerald)}
+@media(max-width:900px){.plans{grid-template-columns:1fr}}
+/* contact */
+#contact{text-align:left}
+.cbox{margin-top:44px;border:1px solid var(--line);background:linear-gradient(120deg,rgba(0,230,122,.06),transparent 55%),var(--panel);padding:clamp(28px,5vw,64px);display:grid;grid-template-columns:1.2fr .8fr;gap:40px;align-items:center}
+.cbox .ar-big{font-family:var(--ar);font-size:clamp(60px,9vw,130px);color:var(--emerald);line-height:1.2;text-align:center;text-shadow:0 0 60px rgba(0,230,122,.35)}
+.legal{margin-top:22px;font-family:var(--mono);font-size:12px;color:var(--mut);line-height:2;border-left:2px solid var(--emerald);padding-left:18px}
+@media(max-width:900px){.cbox{grid-template-columns:1fr}.cbox .ar-big{font-size:72px}}
+footer{border-top:1px solid var(--line2);padding:34px 4vw;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--mut);letter-spacing:.12em}
+/* reveal */
+.rv{opacity:0;transform:translateY(36px)}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <img class="lg" src="logo.svg" alt="HIMAYA">
+  <div id="loadbar"><i></i></div>
+  <p>HIMAYA · حماية · INITIALIZING SHIELD</p>
+</div>
+
+<nav>
+  <a class="brand" href="#hero"><img src="logo.svg" alt=""><b>HIMAYA</b><small>حماية</small></a>
+  <div class="links">
+    <a href="#protocole" data-fr="PROTOCOLE" data-en="PROTOCOL">PROTOCOLE</a>
+    <a href="#moteurs" data-fr="MOTEURS" data-en="ENGINES">MOTEURS</a>
+    <a href="#preuve" data-fr="PREUVE" data-en="PROOF">PREUVE</a>
+    <a href="#tarifs" data-fr="TARIFS" data-en="PRICING">TARIFS</a>
+  </div>
+  <div class="nact">
+    <div class="lang"><button id="lfr" class="on">FR</button><button id="len">EN</button></div>
+    <a class="btn" href="#contact" data-fr="AUDIT →" data-en="AUDIT →">AUDIT →</a>
+  </div>
+</nav>
+
+<header id="hero">
+  <canvas id="gl"></canvas>
+  <div class="veil"></div>
+  <div class="hwrap">
+    <div class="eyebrow"><span data-fr="// AUDIT PRÉ-LANCEMENT — ALGÉRIE" data-en="// PRE-LAUNCH AUDIT — ALGERIA">// AUDIT PRÉ-LANCEMENT — ALGÉRIE</span></div>
+    <h1>HIMAYA<br><span class="stroke">SHIELD</span> <span class="ar">حماية</span></h1>
+    <p class="tag" data-fr="Votre produit est prêt. Mais est-il <strong>blindé</strong> ? 6 moteurs d'attaque orchestrés, un verdict sans jargon — le bouclier pré-lancement des startups algériennes."
+       data-en="Your product is ready. But is it <strong>armored</strong>? 6 orchestrated attack engines, one jargon-free verdict — the pre-launch shield of Algerian startups.">Votre produit est prêt. Mais est-il <strong>blindé</strong> ? 6 moteurs d'attaque orchestrés, un verdict sans jargon — le bouclier pré-lancement des startups algériennes.</p>
+    <div class="hcta">
+      <a class="btn solid" href="#contact" data-fr="DEMANDER UN AUDIT" data-en="REQUEST AN AUDIT">DEMANDER UN AUDIT</a>
+      <a class="btn" href="#preuve" data-fr="VOIR LA PREUVE ↓" data-en="SEE THE PROOF ↓">VOIR LA PREUVE ↓</a>
+    </div>
+    <div class="hstats">
+      <div class="pass"><b>GATE ✓</b><span data-fr="VERDICT QUALITÉ" data-en="QUALITY VERDICT">VERDICT QUALITÉ</span></div>
+      <div><b><span data-count="6">0</span></b><span data-fr="MOTEURS D'ATTAQUE" data-en="ATTACK ENGINES">MOTEURS D'ATTAQUE</span></div>
+      <div><b><span data-count="14">0</span></b><span data-fr="SIGNAUX / SCAN RÉEL" data-en="SIGNALS / LIVE SCAN">SIGNAUX / SCAN RÉEL</span></div>
+      <div><b><span data-count="0">0</span></b><span data-fr="CRITIQUE — DERNIER SCAN" data-en="CRITICAL — LAST SCAN">CRITIQUE — DERNIER SCAN</span></div>
+    </div>
+  </div>
+  <div class="scrollcue">SCROLL</div>
+</header>
+
+<div class="mq"><div id="mqin"></div></div>
+
+<section id="protocole">
+  <div class="snum">01 // PROTOCOLE</div>
+  <h2 data-fr="Pas un SaaS ouvert. <em>Une opération autorisée.</em>" data-en="Not an open SaaS. <em>An authorized operation.</em>">Pas un SaaS ouvert. <em>Une opération autorisée.</em></h2>
+  <p class="sub" data-fr="Nous ne vendons pas un bouton de scan. Nous menons une mission : cadrage signé, attaque orchestrée, rapport d'expert. Votre URL ne touche jamais une file publique."
+     data-en="We don't sell a scan button. We run an operation: signed scoping, orchestrated attack, expert report. Your URL never touches a public queue.">Nous ne vendons pas un bouton de scan. Nous menons une mission : cadrage signé, attaque orchestrée, rapport d'expert. Votre URL ne touche jamais une file publique.</p>
+  <div class="steps">
+    <div class="step rv"><div class="n">01</div><h3 data-fr="Autorisation signée" data-en="Signed authorization">Autorisation signée</h3>
+      <p data-fr="Identité du client, périmètre exact, fenêtre de tir. Chaque mission commence par un document signé — bouclier légal des deux côtés." data-en="Client identity, exact scope, firing window. Every mission starts with a signed document — a legal shield for both sides.">Identité du client, périmètre exact, fenêtre de tir. Chaque mission commence par un document signé — bouclier légal des deux côtés.</p>
+      <span class="tag2">ACTE · صك</span></div>
+    <div class="step rv"><div class="n">02</div><h3 data-fr="Attaque orchestrée" data-en="Orchestrated attack">Attaque orchestrée</h3>
+      <p data-fr="ZAP, Nuclei, Nikto, Nmap, testssl.sh et headers frappent votre cible en séquence — 15 à 25 minutes d'assaut méthodique, supervisé par un opérateur." data-en="ZAP, Nuclei, Nikto, Nmap, testssl.sh and headers hit your target in sequence — 15 to 25 minutes of methodical assault, supervised by an operator.">ZAP, Nuclei, Nikto, Nmap, testssl.sh et headers frappent votre cible en séquence — 15 à 25 minutes d'assaut méthodique, supervisé par un opérateur.</p>
+      <span class="tag2">ASSAUT · هجوم</span></div>
+    <div class="step rv"><div class="n">03</div><h3 data-fr="Verdict + retest" data-en="Verdict + retest">Verdict + retest</h3>
+      <p data-fr="Rapport priorisé, top-3 correctifs, puis re-scan de vérification après vos patchs. On ne vous laisse pas seul avec un PDF." data-en="Prioritized report, top-3 fixes, then a verification re-scan after your patches. We don't leave you alone with a PDF.">Rapport priorisé, top-3 correctifs, puis re-scan de vérification après vos patchs. On ne vous laisse pas seul avec un PDF.</p>
+      <span class="tag2">VERDICT · حكم</span></div>
+  </div>
+</section>
+
+<section id="moteurs">
+  <div class="snum">02 // ARSENAL</div>
+  <h2 data-fr="Six moteurs. <em>Zéro pitié.</em>" data-en="Six engines. <em>Zero mercy.</em>">Six moteurs. <em>Zéro pitié.</em></h2>
+  <p class="sub" data-fr="Pas des vérifications de surface — de vrais moteurs d'attaque, les mêmes que les pentesters professionnels." data-en="Not surface checks — real attack engines, the same ones professional pentesters use.">Pas des vérifications de surface — de vrais moteurs d'attaque, les mêmes que les pentesters professionnels.</p>
+  <div class="eng">
+    <div class="card rv"><div class="idx">ENG·01</div><h3>ZAP <i>// active</i></h3><p data-fr="Scan actif OWASP : spider + attaque sur XSS, SQLi, inclusions. Budget partagé, session fraîche par mission." data-en="OWASP active scan: spider + attack on XSS, SQLi, inclusions. Shared budget, fresh session per mission.">Scan actif OWASP : spider + attaque sur XSS, SQLi, inclusions. Budget partagé, session fraîche par mission.</p><div class="spec">Spider → Ajax OFF · Ascan budget <b>600s</b> · Top-20 URLs</div></div>
+    <div class="card rv"><div class="idx">ENG·02</div><h3>NUCLEI <i>// cve</i></h3><p data-fr="Milliers de templates CVE et d'expositions, profondeur totale, cadence bridée pour ne jamais DoS la cible." data-en="Thousands of CVE and exposure templates, full depth, throttled rate so the target is never DoSed.">Milliers de templates CVE et d'expositions, profondeur totale, cadence bridée pour ne jamais DoS la cible.</p><div class="spec">Full templates · <b>50 req/s</b> · tags dos exclus</div></div>
+    <div class="card rv"><div class="idx">ENG·03</div><h3>NMAP <i>// recon</i></h3><p data-fr="Cartographie ports et services : la surface réseau réelle avant l'applicatif." data-en="Port and service mapping: the real network surface before the application layer.">Cartographie ports et services : la surface réseau réelle avant l'applicatif.</p><div class="spec">SYN scan · service detect · <b>top ports</b></div></div>
+    <div class="card rv"><div class="idx">ENG·04</div><h3>TESTSSL <i>// tls</i></h3><p data-fr="Radiographie TLS : protocoles, suites, certificats, chaînes — la confiance chiffrée, vérifiée." data-en="TLS X-ray: protocols, ciphers, certificates, chains — encrypted trust, verified.">Radiographie TLS : protocoles, suites, certificats, chaînes — la confiance chiffrée, vérifiée.</p><div class="spec">TLS 1.0–1.3 · ciphers · <b>cert chain</b></div></div>
+    <div class="card rv"><div class="idx">ENG·05</div><h3>NIKTO <i>// paths</i></h3><p data-fr="Chemins connus, CGI douteux, fichiers sensibles — la mémoire des erreurs passées du web." data-en="Known paths, dubious CGIs, sensitive files — the web's memory of past mistakes.">Chemins connus, CGI douteux, fichiers sensibles — la mémoire des erreurs passées du web.</p><div class="spec">Tuning x6 · bounded <b>240s</b> · vérifié</div></div>
+    <div class="card rv"><div class="idx">ENG·06</div><h3>HEADERS <i>// shield</i></h3><p data-fr="CSP, HSTS, clickjacking, cookies : les remparts que le navigateur dresse pour vous." data-en="CSP, HSTS, clickjacking, cookies: the ramparts your browser raises for you.">CSP, HSTS, clickjacking, cookies : les remparts que le navigateur dresse pour vous.</p><div class="spec">CSP · HSTS · <b>SameSite</b> · X-Frame</div></div>
+    <div class="gate rv"><div class="big">QUALITY&nbsp;GATE</div><p style="flex:1;min-width:240px;color:var(--mut);font-size:14.5px;line-height:1.7" data-fr="FAIL automatique sur XSS/SQLi et tout signal haut ou critique. WARN sur l'hygiène. Le verdict ne se discute pas — il se corrige." data-en="Automatic FAIL on XSS/SQLi and any high or critical signal. WARN on hygiene. The verdict isn't debated — it's fixed.">FAIL automatique sur XSS/SQLi et tout signal haut ou critique. WARN sur l'hygiène. Le verdict ne se discute pas — il se corrige.</p></div>
+  </div>
+</section>
+
+<div id="preuve"><div class="inner" style="padding:13vh 4vw">
+  <div class="snum">03 // PREUVE DE COMBAT</div>
+  <h2 data-fr="Sortie réelle. <em>Cible réelle.</em>" data-en="Live output. <em>Real target.</em>">Sortie réelle. <em>Cible réelle.</em></h2>
+  <p class="sub" data-fr="Extrait authentique d'une mission autorisée — 7 phases, 14 signaux, zéro critique. Ceci est une sortie HIMAYA non retouchée." data-en="Authentic excerpt from an authorized mission — 7 phases, 14 signals, zero critical. This is unretouched HIMAYA output.">Extrait authentique d'une mission autorisée — 7 phases, 14 signaux, zéro critique. Ceci est une sortie HIMAYA non retouchée.</p>
+  <div class="term rv"><div class="bar"><i class="dot" style="background:#ff5f57"></i><i class="dot" style="background:#febc2e"></i><i class="dot" style="background:#28c840"></i><span class="t">himaya-op · mission log · target: progres.mesrs.dz [autorisé]</span></div><div id="termbody"></div></div>
+  <div class="finds">
+    <div class="find rv"><span class="sev M">MEDIUM</span><div>CSP header absent<small>zap · /rest/products/search</small></div></div>
+    <div class="find rv"><span class="sev M">MEDIUM</span><div>Anti-clickjacking manquant<small>zap · /</small></div></div>
+    <div class="find rv"><span class="sev M">MEDIUM</span><div>HSTS manquant<small>headers · /</small></div></div>
+    <div class="find rv"><span class="sev L">LOW</span><div>X-Content-Type-Options manquant<small>zap · /</small></div></div>
+    <div class="find rv"><span class="sev L">LOW</span><div>Referrer-Policy manquant<small>headers · /</small></div></div>
+    <div class="find rv"><span class="sev I">INFO</span><div>Bannière serveur : Apache — 0 critique, 0 haut<small>nuclei + gate · verdict : PASSED ✓</small></div></div>
+  </div>
+</div></div>
+
+<section id="tarifs">
+  <div class="snum">04 // TARIFS</div>
+  <h2 data-fr="Un prix par mission. <em>Pas d'abonnement piège.</em>" data-en="One price per mission. <em>No trap subscription.</em>">Un prix par mission. <em>Pas d'abonnement piège.</em></h2>
+  <div class="plans">
+    <div class="plan rv"><h3>SCAN · مسح</h3><div class="pr">—<small> / mission</small></div>
+      <ul><li data-fr="6 moteurs, profondeur totale" data-en="6 engines, full depth">6 moteurs, profondeur totale</li><li data-fr="Rapport priorisé FR" data-en="Prioritized FR report">Rapport priorisé FR</li><li data-fr="Verdict quality-gate" data-en="Quality-gate verdict">Verdict quality-gate</li><li data-fr="Export JSON + texte" data-en="JSON + text export">Export JSON + texte</li></ul>
+      <a class="btn" href="#contact" data-fr="COMMANDER →" data-en="ORDER →">COMMANDER →</a></div>
+    <div class="plan hot rv" data-badge="★ RECOMMANDÉ · موصى به"><h3>SCAN + RETEST · إعادة</h3><div class="pr">—<small> / mission</small></div>
+      <ul><li data-fr="Tout SCAN, + top-3 correctifs guidés" data-en="Everything in SCAN, + guided top-3 fixes">Tout SCAN, + top-3 correctifs guidés</li><li data-fr="Re-scan de vérification après patchs" data-en="Verification re-scan after patches">Re-scan de vérification après patchs</li><li data-fr="Attestation de vérification" data-en="Verification attestation">Attestation de vérification</li><li data-fr="Support direct opérateur" data-en="Direct operator support">Support direct opérateur</li></ul>
+      <a class="btn solid" href="#contact" data-fr="BLINDER MON LANCEMENT →" data-en="ARMOR MY LAUNCH →">BLINDER MON LANCEMENT →</a></div>
+    <div class="plan rv"><h3>PARTENAIRE · شريك</h3><div class="pr">—<small> / trimestre</small></div>
+      <ul><li data-fr="Scans avant chaque release" data-en="Scans before each release">Scans avant chaque release</li><li data-fr="Suivi des tendances par cible" data-en="Per-target trend tracking">Suivi des tendances par cible</li><li data-fr="Priorité de créneau" data-en="Priority scheduling">Priorité de créneau</li><li data-fr="Briefing équipe (1h)" data-en="Team briefing (1h)">Briefing équipe (1h)</li></ul>
+      <a class="btn" href="#contact" data-fr="DISCUTER →" data-en="TALK →">DISCUTER →</a></div>
+  </div>
+</section>
+
+<section id="contact">
+  <div class="snum">05 // CONTACT</div>
+  <h2 data-fr="Prêt pour le <em>blindage ?</em>" data-en="Ready for <em>armor?</em>">Prêt pour le <em>blindage ?</em></h2>
+  <div class="cbox rv">
+    <div>
+      <p class="sub" style="margin-top:0" data-fr="Écrivez-nous : URL cible, contexte, fenêtre souhaitée. Nous répondons avec l'acte d'autorisation à signer — le scan démarre dès signature." data-en="Write to us: target URL, context, desired window. We reply with the authorization act to sign — the scan starts on signature.">Écrivez-nous : URL cible, contexte, fenêtre souhaitée. Nous répondons avec l'acte d'autorisation à signer — le scan démarre dès signature.</p>
+      <div class="hcta"><a class="btn solid" href="mailto:contact@himaya.dz?subject=%5BHIMAYA%5D%20Demande%20d%27audit%20pr%C3%A9-lancement&body=URL%20cible%20%3A%0AContexte%20%3A%0AFen%C3%AAtre%20souhait%C3%A9e%20%3A%0A" data-fr="CONTACT@HIMAYA.DZ" data-en="CONTACT@HIMAYA.DZ">CONTACT@HIMAYA.DZ</a></div>
+      <div class="legal" data-fr="RÈGLE D'OR — aucun scan sans autorisation écrite du propriétaire ou mandat explicite. Chaque mission est tracée, horodatée, livrée avec son acte." data-en="GOLDEN RULE — no scan without written authorization from the owner or an explicit mandate. Every mission is logged, timestamped, delivered with its act.">RÈGLE D'OR — aucun scan sans autorisation écrite du propriétaire ou mandat explicite. Chaque mission est tracée, horodatée, livrée avec son acte.</div>
+    </div>
+    <div class="ar-big">حماية</div>
+  </div>
+</section>
+
+<footer><span>HIMAYA · حماية — ALGER · صنع في الجزائر</span><span id="yr">© 2026 · LE BOUCLIER PRÉ-LANCEMENT</span></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script>
+/* ============ i18n ============ */
+let LANG='fr';
+function setLang(l){LANG=l;document.documentElement.lang=l;
+  document.querySelectorAll('[data-fr]').forEach(e=>{e.innerHTML=l==='fr'?e.dataset.fr:e.dataset.en});
+  document.getElementById('lfr').classList.toggle('on',l==='fr');
+  document.getElementById('len').classList.toggle('on',l==='en');}
+document.getElementById('lfr').onclick=()=>setLang('fr');
+document.getElementById('len').onclick=()=>setLang('en');
+/* marquee */
+(()=>{const items=['NMAP','OWASP ZAP','NUCLEI','NIKTO','TESTSSL.SH','HEADERS','QUALITY GATE','حماية'];const h=items.map(t=>`<b>◆</b> ${t} `).join('');document.getElementById('mqin').innerHTML=h+h;})();
+/* ============ THREE — radar shield dome (code-only, procedural) ============ */
+(()=>{try{
+const cv=document.getElementById('gl');
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
+const scene=new THREE.Scene();scene.fog=new THREE.FogExp2(0x050807,.055);
+const cam=new THREE.PerspectiveCamera(55,1,.1,200);cam.position.set(0,4.5,26);
+function size(){const w=cv.clientWidth||innerWidth,h=cv.clientHeight||innerHeight;renderer.setSize(w,h,false);renderer.setPixelRatio(Math.min(devicePixelRatio,2));cam.aspect=w/h;cam.updateProjectionMatrix();}
+size();addEventListener('resize',size);
+const EM=0x00e67a,EMD=0x0b5c3f,RED=0xff2d4d;
+/* core shield: icosahedron wireframe */
+const shield=new THREE.Group();
+const core=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(6,1)),new THREE.LineBasicMaterial({color:EM,transparent:true,opacity:.5}));
+shield.add(core);
+const inner=new THREE.Mesh(new THREE.IcosahedronGeometry(6,1),new THREE.MeshBasicMaterial({color:EMD,transparent:true,opacity:.06}));
+shield.add(inner);
+/* orbiting sentinels */
+const sats=[];
+for(let i=0;i<3;i++){const s=new THREE.Mesh(new THREE.OctahedronGeometry(.42),new THREE.MeshBasicMaterial({color:i===2?RED:EM}));s.userData={r:9.5+i*1.6,sp:.25+i*.14,ph:i*2.1,tilt:.35+i*.22};shield.add(s);sats.push(s);}
+/* radar rings */
+const rings=[];
+for(let i=0;i<4;i++){const r=new THREE.Mesh(new THREE.RingGeometry(8.6+i*2.1,8.72+i*2.1,96),new THREE.MeshBasicMaterial({color:EM,transparent:true,opacity:.28-i*.06,side:THREE.DoubleSide}));r.rotation.x=-Math.PI/2.35;r.position.y=-4.5;scene.add(r);rings.push(r);}
+/* sweep */
+const sweep=new THREE.Mesh(new THREE.CircleGeometry(15.5,48,0,.5),new THREE.MeshBasicMaterial({color:EM,transparent:true,opacity:.1,side:THREE.DoubleSide,depthWrite:false}));
+sweep.rotation.x=-Math.PI/2;sweep.position.y=-4.49;scene.add(sweep);
+/* particles */
+const N=900,pos=new Float32Array(N*3);
+for(let i=0;i<N;i++){const a=Math.random()*Math.PI*2,r=7+Math.random()*16;pos[i*3]=Math.cos(a)*r;pos[i*3+1]=-4+Math.random()*16;pos[i*3+2]=Math.sin(a)*r;}
+const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+const pts=new THREE.Points(pg,new THREE.PointsMaterial({color:EM,size:.09,transparent:true,opacity:.75}));
+scene.add(pts);
+shield.position.y=2.5;scene.add(shield);
+let mx=0,my=0;addEventListener('pointermove',e=>{mx=e.clientX/innerWidth-.5;my=e.clientY/innerHeight-.5;});
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const clk=new THREE.Clock();
+(function tick(){requestAnimationFrame(tick);const t=clk.getElapsedTime();
+  if(!reduced){
+    core.rotation.y=t*.12;core.rotation.x=Math.sin(t*.2)*.15;
+    sats.forEach(s=>{const u=s.userData,a=t*u.sp+u.ph;s.position.set(Math.cos(a)*u.r,Math.sin(a*u.tilt)*3.4,Math.sin(a)*u.r);s.rotation.x=t;s.rotation.y=t*1.3;});
+    sweep.rotation.z=-t*.7;pts.rotation.y=t*.02;
+    rings.forEach((r,i)=>{r.material.opacity=.16+Math.sin(t*1.4+i*1.7)*.1;});
+    cam.position.x+=((mx*6)-cam.position.x)*.04;cam.position.y+=((4.5-my*4)-cam.position.y)*.04;cam.lookAt(0,1.5,0);
+  }
+  renderer.render(scene,cam);})();
+/* loader out */
+let p=0;const iv=setInterval(()=>{p=Math.min(100,p+Math.random()*26);document.querySelector('#loadbar i').style.width=p+'%';if(p>=100){clearInterval(iv);setTimeout(()=>document.getElementById('loader').classList.add('done'),250);}},160);
+}catch(e){document.getElementById('loader').classList.add('done');}})();
+/* ============ terminal typing (real mission data) ============ */
+(()=>{const lines=[
+['$ himaya run --target progres.mesrs.dz --auth mission-041.signé','g'],
+['[✓] autorisation vérifiée · fenêtre 12:21–12:45 UTC','g'],
+['[01/7] zap ............ 11 signaux · ascan 45s · 0 alerte active','d'],
+['[02/7] headers ........ CSP ✗ · HSTS ✗ · clickjacking ✗','a'],
+['[03/7] nmap ........... 443/tcp open · 53/tcp tcpwrapped','d'],
+['[04/7] testssl ........ chaîne OK · dépréciation CLI (bénin)','d'],
+['[05/7] nikto .......... 429 distant — retest planifié','a'],
+['[06/7] nuclei ......... 0 finding · 0 CVE','g'],
+['[07/7] sensitive-files  0 exposition','g'],
+['GATE → PASSED ✓ · 4 medium · 5 low · 5 info · 0 critical','g'],
+['$ himaya report --format verdict → « corrigez ces 3 headers »','d']];
+const box=document.getElementById('termbody');let li=0,ci=0,cur=null;
+function type(){if(li>=lines.length){const c=document.createElement('span');c.className='caret';box.appendChild(c);return;}
+  const [txt,cls]=lines[li];
+  if(!cur){cur=document.createElement('div');cur.className=cls;box.appendChild(cur);ci=0;}
+  cur.textContent=txt.slice(0,++ci);
+  if(ci>=txt.length){li++;cur=null;setTimeout(type,260);}else setTimeout(type,txt.startsWith('$')?34:9);}
+new IntersectionObserver((e,o)=>{if(e[0].isIntersecting){o.disconnect();setTimeout(type,400);}}).observe(box);})();
+/* ============ motion: counters + reveals ============ */
+(()=>{try{
+document.querySelectorAll('[data-count]').forEach(el=>{const end=+el.dataset.count;
+  new IntersectionObserver((e,o)=>{if(!e[0].isIntersecting)return;o.disconnect();const t0=performance.now();
+    (function f(t){const k=Math.min(1,(t-t0)/1200);el.textContent=Math.round(end*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(f);})(t0);}).observe(el);});
+if(window.gsap&&window.ScrollTrigger){gsap.registerPlugin(ScrollTrigger);
+  gsap.utils.toArray('.rv').forEach(el=>{gsap.to(el,{opacity:1,y:0,duration:.9,ease:'power3.out',scrollTrigger:{trigger:el,start:'top 88%'}});});
+  gsap.to('h1',{yPercent:-8,ease:'none',scrollTrigger:{trigger:'#hero',start:'top top',end:'bottom top',scrub:true}});
+}else{document.querySelectorAll('.rv').forEach(el=>{el.style.opacity=1;el.style.transform='none';});}
+}catch(e){document.querySelectorAll('.rv').forEach(el=>{el.style.opacity=1;el.style.transform='none';});}})();
+document.getElementById('yr').textContent='© '+new Date().getFullYear()+' · LE BOUCLIER PRÉ-LANCEMENT';
+</script>
+</body>
+</html>

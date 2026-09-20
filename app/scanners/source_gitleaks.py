@@ -11,6 +11,11 @@ import subprocess
 
 from app.config import ROOT, settings
 from app.models import Finding, Severity
+from app.scanners.secret_context import (
+    FIXTURE_NOTE,
+    downgrade_for_fixture,
+    is_likely_test_fixture,
+)
 from app.scanners.source_base import SourceScanner
 from app.scanners.source_builtin import BuiltinSecretsScanner
 
@@ -37,6 +42,12 @@ class GitleaksScanner(SourceScanner):
     def run(self) -> list[Finding]:
         out = self.repo_path / ".gitleaks-report.json"
         cfg = ROOT / ".gitleaks.toml"
+        # Stale reports from a previous run would otherwise be scanned as
+        # source by later scanners (and by gitleaks itself on rerun).
+        try:
+            out.unlink(missing_ok=True)
+        except Exception:
+            pass
         cmd = [
             settings.gitleaks_bin, "detect",
             "--source", str(self.repo_path),
@@ -69,16 +80,22 @@ class GitleaksScanner(SourceScanner):
             for tag, s in SEV_BY_TAG:
                 if tag in tags:
                     sev = s
+            secret_val = str(it.get("Secret") or "")
+            fixture = is_likely_test_fixture(
+                path, secret_val, str(it.get("Description") or "")
+            )
+            if fixture:
+                sev = downgrade_for_fixture(sev)
             findings.append(
                 Finding(
                     scanner=self.name,
-                    title=f"Gitleaks {rule} in {path}",
+                    title=f"Gitleaks {rule} in {path}" + (" [likely test fixture]" if fixture else ""),
                     severity=sev,
-                    description=str(it.get("Description") or rule)[:400],
-                    evidence=str(it.get("Secret") or "")[:40] + "…",
+                    description=(str(it.get("Description") or rule)[:400] + (f" {FIXTURE_NOTE}" if fixture else ""))[:600],
+                    evidence=secret_val[:40] + "…",
                     location=f"{self.repo_url}#{path}:{it.get('StartLine') or ''}",
-                    recommendation="Remove secret, rotate it, purge from git history.",
-                    raw={"rule": rule, "file": path},
+                    recommendation="Remove secret, rotate it, purge from git history." + (" If this is lesson/test code, no rotation needed — confirm first." if fixture else ""),
+                    raw={"rule": rule, "file": path, "likely_test_fixture": fixture},
                 )
             )
             if len(findings) >= 100:

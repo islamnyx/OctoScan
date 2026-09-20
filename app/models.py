@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
@@ -55,6 +55,49 @@ def _clean_scanner_list(v: list[str] | None, allowed: set[str]) -> list[str]:
     return seen
 
 
+class ScanAuth(BaseModel):
+    """Session injection for authenticated scans (v1).
+
+    NOT credential login: supply an already-valid session — cookies
+    and/or headers (e.g. Authorization: Bearer …). Injected into ZAP
+    (replacer rules), nikto (-Add-header), nuclei (-H) and the
+    httpx-based scanners (headers, sensitive-file probes).
+
+    Never put passwords here: job.json persists on disk. v1 has no
+    form-login automation; log in once in your browser and paste the
+    session cookie.
+    """
+
+    cookies: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+
+    # Transport-breaking or smuggling-prone headers must never be
+    # scanner-overridden (would corrupt every scanner's requests).
+    BLOCKED_HEADERS: ClassVar[frozenset] = frozenset(
+        {"host", "content-length", "connection", "transfer-encoding", "upgrade", "expect"}
+    )
+
+    @field_validator("cookies", "headers", mode="before")
+    @classmethod
+    def _clean_map(cls, v: Any) -> dict[str, str]:
+        if not v:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("must be an object of name/value pairs")
+        cleaned: dict[str, str] = {}
+        for k, val in list(v.items())[:10]:
+            name = str(k).strip()[:128]
+            value = str(val).strip()[:1024]
+            if not name or not value:
+                continue
+            if any(c in name for c in ":\r\n \t") or "\n" in value or "\r" in value:
+                continue
+            if name.lower() in cls.BLOCKED_HEADERS:
+                continue
+            cleaned[name] = value
+        return cleaned
+
+
 class ScanRequest(BaseModel):
     target_url: HttpUrl
     include_source: bool = False
@@ -62,6 +105,8 @@ class ScanRequest(BaseModel):
     # Dashboard scanner picker: subset of web scanners to run.
     # Empty/omitted = run all (backward compatible).
     scanners: list[str] | None = None
+    # Authenticated scans (v1 session injection). Omitted = anonymous.
+    auth: ScanAuth | None = None
 
     @field_validator("scanners")
     @classmethod
@@ -94,6 +139,9 @@ class ScanJob(BaseModel):
     # Dashboard selection: which web scanners were requested. Empty = all.
     # Persisted so resume skips correctly and old jobs still load.
     requested_scanners: list[str] = Field(default_factory=list)
+    # Session injection for authenticated scans (v1). None = anonymous.
+    # Defaults keep old job.json files loadable.
+    auth: ScanAuth | None = None
     # Per-scanner coverage metadata (scope actually achieved), kept out of
     # findings so severity counts only reflect real vulns. Old job.json
     # files without this field still load via the default.

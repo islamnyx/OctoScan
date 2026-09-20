@@ -5,7 +5,7 @@ from pathlib import Path
 from app.config import settings
 from app.models import Finding, Severity
 from app.normalize import from_testssl
-from app.scanners.base import BaseScanner
+from app.scanners.base import BaseScanner, assert_target_reachable
 
 
 class TestsslScanner(BaseScanner):
@@ -23,6 +23,11 @@ class TestsslScanner(BaseScanner):
                 )
             ]
         out_json = self.workdir / "testssl.json"
+        # testssl.sh refuses to write into a non-empty --jsonfile
+        # ("use --append or (re)move it") and appends a FATAL after the
+        # existing JSON, which then fails to parse. Always start fresh so
+        # pipeline retries and scan resumes can't poison the file.
+        out_json.unlink(missing_ok=True)
         cmd = [
             str(settings.testssl_bin),
             "--fast",
@@ -42,9 +47,11 @@ class TestsslScanner(BaseScanner):
         return self._parse(out_json)
 
     NOISY_IDS = {
-        "rating_spec", "rating_doc", "scanProblem", "scanTime", "HPKP",
+        "rating_spec", "rating_doc", "scanTime", "HPKP",
         "cookie_count", "HTTP_status_code", "HTTP_clock_skew",
         "HTTP_headerTime", "HTTP_headerAge",
+        # testssl's own CLI warnings, not target findings.
+        "cmdline_fast_depreciation",
     }
     NOISY_PREFIXES = (
         "intermediate_cert", "cert_fingerprint", "cert_notBefore",
@@ -64,6 +71,7 @@ class TestsslScanner(BaseScanner):
 
     def _parse(self, path: Path) -> list[Finding]:
         findings: list[Finding] = []
+        connect_failure: str | None = None
         payload = json.loads(path.read_text())
         rows = payload if isinstance(payload, list) else payload.get("scanResult", payload)
         if isinstance(rows, dict):
@@ -76,6 +84,15 @@ class TestsslScanner(BaseScanner):
                 continue
             for item in items:
                 if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "")
+                # FATAL scanProblem = testssl never connected. Previously the
+                # noise filter swallowed it and the scan reported "No TLS
+                # issues detected" on a target we never reached.
+                if item_id == "scanProblem" and str(item.get("severity", "")).upper() == "FATAL":
+                    connect_failure = str(item.get("finding") or "testssl could not connect")
+                    continue
+                if item_id == "scanTime":
                     continue
                 if self._is_noisy(item):
                     continue
@@ -99,6 +116,16 @@ class TestsslScanner(BaseScanner):
                         raw=item,
                     )
                 )
+        if connect_failure and not findings:
+            try:
+                assert_target_reachable(f"{self.scheme}://{self.host}:{self.port}")
+                detail = "target answers now, so the failure was transient"
+            except RuntimeError:
+                detail = "target still unreachable"
+            raise RuntimeError(
+                f"CONNECTION FAILURE: testssl.sh could not connect to "
+                f"{self.host}:{self.port}: {connect_failure} ({detail})"
+            )
         if not findings:
             findings.append(
                 Finding(

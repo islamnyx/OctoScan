@@ -131,6 +131,7 @@
           <button class="tab active" data-tab="pane-web" role="tab">Web application</button>
           <button class="tab" data-tab="pane-repo" role="tab">Codebase</button>
           <button class="tab" data-tab="pane-ai" role="tab">AI provider</button>
+          <button class="tab" data-tab="pane-apk" role="tab">Mobile APK</button>
         </div>
 
         <div class="tabpane active" id="pane-web">
@@ -151,6 +152,19 @@
                 <label class="checkline"><input class="web-scanner" type="checkbox" value="headers" checked /> Headers</label>
                 <label class="checkline"><input class="web-scanner" type="checkbox" value="testssl" checked /> TLS</label>
                 <label class="checkline"><input class="web-scanner" type="checkbox" value="sensitive-files" checked /> Sensitive files</label>
+              </div>
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label class="checkline"><input id="auth-toggle" type="checkbox" /> Authenticated scan <span class="note">(paste a logged-in session; sent as headers/cookies to every scanner)</span></label>
+              <div class="field-row" id="auth-fields" style="margin-top:6px; display:none;">
+                <div class="field">
+                  <label for="auth-cookies">Session cookies <span class="note">(name=value; separate with ;)</span></label>
+                  <input id="auth-cookies" type="text" placeholder="PHPSESSID=abc123; security=low" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="auth-headers">Extra headers <span class="note">(one per line, Name: value)</span></label>
+                  <input id="auth-headers" type="text" placeholder="Authorization: Bearer …" autocomplete="off" />
+                </div>
               </div>
             </div>
             <div class="actions">
@@ -242,6 +256,30 @@
           </div>
           <p class="formhint">Code excerpts are sent to the active provider. Use Ollama or LM Studio to keep everything on this machine.</p>
         </div>
+
+        <div class="tabpane" id="pane-apk">
+          <div class="banner" role="status">Mobile APK scans are coming soon — static analysis only, the APK is never executed.</div>
+          <form id="apk-form" onsubmit="return false;">
+            <div class="field" style="margin-top:12px;">
+              <label for="apk-file">APK file</label>
+              <input id="apk-file" type="file" accept=".apk" disabled title="Coming soon" />
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Planned checks</label>
+              <div class="field-row" style="margin-top:6px;">
+                <label class="checkline"><input type="checkbox" checked disabled /> Manifest (debuggable, backup, cleartext)</label>
+                <label class="checkline"><input type="checkbox" checked disabled /> Components (exported activities/services/receivers)</label>
+                <label class="checkline"><input type="checkbox" checked disabled /> Secrets (keys/tokens in dex + resources)</label>
+                <label class="checkline"><input type="checkbox" checked disabled /> Crypto/network (pinning, HTTP, WebView bridges)</label>
+                <label class="checkline"><input type="checkbox" checked disabled /> Permissions (dangerous vs actually used)</label>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn" disabled title="Coming soon">Scan APK</button>
+            </div>
+            <p class="formhint">Same Finding model (severity, CWE/OWASP), same summary + text report as web and codebase scans.</p>
+          </form>
+        </div>
       </div>
     </section>
 
@@ -256,6 +294,10 @@
         <div class="hist-card">
           <h3>Codebase scans</h3>
           <table class="hist"><tbody id="repo-history"></tbody></table>
+        </div>
+        <div class="hist-card">
+          <h3>APK scans</h3>
+          <table class="hist"><tbody id="apk-history"></tbody></table>
         </div>
       </div>
     </section>
@@ -347,18 +389,45 @@
     }
     loadHistory();
 
+    // APK scans have no backend yet — coming-soon empty state.
+    document.getElementById("apk-history").innerHTML =
+      `<tr><td class="empty">No APK scans yet — coming soon.</td></tr>`;
+
+    // Authenticated-scan toggle: fields stay hidden until opted in.
+    const authToggle = document.getElementById("auth-toggle");
+    const authFields = document.getElementById("auth-fields");
+    authToggle.addEventListener("change", () => {
+      authFields.style.display = authToggle.checked ? "" : "none";
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const target_url = document.getElementById("url").value.trim();
       if (!target_url) return;
       const scanners = [...document.querySelectorAll(".web-scanner:checked")].map(c => c.value);
       if (!scanners.length) { alert("Pick at least one test to run."); return; }
+      // Optional session injection: only sent when the toggle is on —
+      // toggle off always means anonymous.
+      const cookies = {};
+      const headers = {};
+      if (authToggle.checked) {
+        document.getElementById("auth-cookies").value.split(";").forEach(p => {
+          const i = p.indexOf("=");
+          if (i > 0) { const k = p.slice(0, i).trim(); const v = p.slice(i + 1).trim(); if (k && v) cookies[k] = v; }
+        });
+        document.getElementById("auth-headers").value.split("\n").forEach(l => {
+          const i = l.indexOf(":");
+          if (i > 0) { const k = l.slice(0, i).trim(); const v = l.slice(i + 1).trim(); if (k && v) headers[k] = v; }
+        });
+      }
+      const body = { target_url, scanners };
+      if (Object.keys(cookies).length || Object.keys(headers).length) body.auth = { cookies, headers };
       submitBtn.disabled = true;
       try {
         const res = await fetch("/api/scans", {
           method: "POST",
           headers: apiHeaders(),
-          body: JSON.stringify({ target_url, scanners })
+          body: JSON.stringify(body)
         });
         if (!res.ok) {
           alert("Could not start the scan: " + (await res.text()).slice(0, 200));

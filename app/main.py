@@ -80,7 +80,7 @@ def create_scan(req: ScanRequest, request: Request, api_key: str = Depends(requi
     if running >= 3:
         raise HTTPException(429, "too many concurrent scans (max 3), retry later")
     target = validate_target_url(str(req.target_url), settings.allow_private_targets)
-    job = ScanJob(target_url=target, requested_scanners=req.scanners or [])
+    job = ScanJob(target_url=target, requested_scanners=req.scanners or [], auth=req.auth)
     save_job(job)
     Thread(target=run_scan, args=(job.id,), daemon=True).start()
     return job
@@ -366,12 +366,16 @@ def report_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
         lines.append(f"  Duplicates merged: {summary['merged_duplicates']}")
     if summary.get("findings_with_secrets"):
         lines.append(f"  Secret findings: {summary['findings_with_secrets']}")
+    if summary.get("findings_with_test_secrets"):
+        lines.append(f"  Test-fixture secrets (excluded from headline): {summary['findings_with_test_secrets']}")
     lines.append("")
     lines.append("Findings")
     lines.append("-" * 40)
     for f in job.findings:
         sev = f.severity.value.upper()
         extra = f" (CVSS {f.cvss})" if f.cvss is not None else ""
+        if (f.raw or {}).get("likely_test_fixture"):
+            extra += " [likely test fixture]"
         lines.append(f"[{sev}]{extra} {f.title}")
         lines.append(f"  Scanner: {f.scanner}")
         lines.append(f"  Location: {f.location}")

@@ -37,7 +37,8 @@ def finalize_scan(job: ScanJob, findings: list[Finding], errors: list[str], *, e
     # DAST quality gate (skill Step 4): FAIL on exploitable rules
     # (XSS/SQLi pluginIds, high/critical active findings), WARN on
     # headers/misconfigs. Verdict only — never overrides job.status.
-    job.gate, job.gate_details = evaluate_gate(job.findings)
+    # Coverage-aware (2026-09-16): partial ascan yields INCOMPLETE, not PASSED.
+    job.gate, job.gate_details = evaluate_gate(job.findings, job.coverage)
     job.finished_at = datetime.now(timezone.utc)
     note = "Finished early by user request (partial results). " if early else ""
     if errors and not findings:
@@ -54,6 +55,7 @@ def finalize_scan(job: ScanJob, findings: list[Finding], errors: list[str], *, e
 
 def _pause(job: ScanJob, findings: list[Finding], errors: list[str]) -> ScanJob:
     job.findings = prioritize(findings)
+    job.gate, job.gate_details = evaluate_gate(job.findings, job.coverage)
     prior = ([job.error] if job.error else []) + [e for e in errors if e != job.error]
     job.error = "; ".join(prior)[:1000] if prior else job.error
     job.status = ScanStatus.paused
@@ -81,10 +83,18 @@ def run_scan(scan_id: str) -> ScanJob:
     errors: list[str] = []
     activity.clear(job.id)
     activity.log(job.id, f"scan started against {job.target_url}")
+    if job.auth and (job.auth.cookies or job.auth.headers):
+        activity.log(
+            job.id,
+            f"authenticated scan: session injection "
+            f"({len(job.auth.cookies)} cookie(s), {len(job.auth.headers)} header(s))",
+        )
 
     def _run(scanner_cls):
         activity.current(job.id, f"{scanner_cls.name}: scanning {job.target_url}…")
         scanner = scanner_cls(job.target_url, workdir)
+        # Authenticated scans (v1): session injection; None = anonymous.
+        scanner.auth = job.auth
         findings_result = scanner.run()
         coverage_result = dict(getattr(scanner, "coverage", None) or {})
         activity.log(job.id, f"{scanner_cls.name}: finished — {len(findings_result)} finding(s)", kind="done")
@@ -121,15 +131,37 @@ def run_scan(scan_id: str) -> ScanJob:
                 return finalize_scan(job, findings, errors, early=True)
             if stop == "pause":
                 return _pause(job, findings, errors)
-            try:
-                scanner_name, result, coverage = _run(cls)
-                job.scanners_run.append(scanner_name)
-                findings.extend(result)
-                if coverage:
-                    job.coverage[scanner_name] = coverage
-            except Exception as exc:
-                errors.append(f"{cls.name}: {exc}")
-                activity.log(job.id, f"{cls.name}: failed — {str(exc)[:200]}", kind="error")
+            # Lab targets flap (pentest-ground went unreachable mid-scan on
+            # 2026-09-16 right after ZAP's active scan). Connection-level
+            # failures get one retry after 45s — usually enough for the
+            # target to come back — instead of a wasted scan.
+            attempts = 0
+            while True:
+                try:
+                    scanner_name, result, coverage = _run(cls)
+                    job.scanners_run.append(scanner_name)
+                    findings.extend(result)
+                    if coverage:
+                        job.coverage[scanner_name] = coverage
+                    break
+                except Exception as exc:
+                    retriable = str(exc).startswith("CONNECTION FAILURE:") and attempts == 0
+                    if retriable and not _stopped():
+                        attempts += 1
+                        activity.log(
+                            job.id,
+                            f"{cls.name}: connection failed, retrying once in 45s — {str(exc)[:150]}",
+                            kind="error",
+                        )
+                        for _ in range(9):
+                            if _stopped():
+                                break
+                            time.sleep(5)
+                        if not _stopped():
+                            continue
+                    errors.append(f"{cls.name}: {exc}")
+                    activity.log(job.id, f"{cls.name}: failed — {str(exc)[:200]}", kind="error")
+                    break
             job.findings = prioritize(findings)
             save_job(job)
             time.sleep(2)  # let CPU/thermals settle between heavy scanners
@@ -175,12 +207,15 @@ def run_scan(scan_id: str) -> ScanJob:
             return _pause(job, findings, errors)
         try:
             activity.current(job.id, "sensitive-files: probing discovered URLs…")
-            sensitive = flag_sensitive_files(job.target_url, findings)
+            auth_pair = (
+                (dict(job.auth.headers), dict(job.auth.cookies)) if job.auth else None
+            )
+            sensitive = flag_sensitive_files(job.target_url, findings, auth_pair)
             # Active probes: high-value paths no crawler reliably discovers
             # (/.git/HEAD, /.git/config, /.env, /.DS_Store). Runs even when
             # no other scanner found any URL (e.g. headers-only scans).
             try:
-                sensitive += probe_wellknown(job.target_url)
+                sensitive += probe_wellknown(job.target_url, auth_pair)
             except Exception as exc:
                 errors.append(f"sensitive-files-probe: {exc}")
             if sensitive:

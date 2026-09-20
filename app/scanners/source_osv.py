@@ -169,6 +169,10 @@ class OsvScanner(SourceScanner):
 
     def run(self) -> list[Finding]:
         out = self.repo_path / ".osv-report.json"
+        try:
+            out.unlink(missing_ok=True)
+        except Exception:
+            pass
         cmd = [
             settings.osv_bin, "scan", "source",
             "--no-ignore",

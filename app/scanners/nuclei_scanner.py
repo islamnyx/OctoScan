@@ -3,7 +3,7 @@ import subprocess
 
 from app.config import settings
 from app.models import Finding, Severity
-from app.scanners.base import BaseScanner
+from app.scanners.base import BaseScanner, assert_target_reachable
 
 
 NUCLEI_SEVERITY_MAP = {
@@ -69,6 +69,13 @@ class NucleiScanner(BaseScanner):
         exclude = [t.strip() for t in (settings.nuclei_exclude_tags or "").split(",") if t.strip()]
         if exclude:
             cmd += ["-exclude-tags", ",".join(exclude)]
+        # Authenticated scans (v1): session injection via custom headers.
+        if self.auth:
+            for h, v in self.auth_headers().items():
+                cmd += ["-H", f"{h}: {v}"]
+            cookie = self.auth_cookie_header()
+            if cookie:
+                cmd += ["-H", f"Cookie: {cookie}"]
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -159,6 +166,10 @@ class NucleiScanner(BaseScanner):
                 )
             )
         if not findings:
+            # Empty output is ambiguous: clean target OR nuclei never reached
+            # it (unreachable target also yields a 0-byte file). Disambiguate
+            # with a cheap probe so a down target can't masquerade as clean.
+            assert_target_reachable(self.target_url)
             findings.append(
                 Finding(
                     scanner=self.name,

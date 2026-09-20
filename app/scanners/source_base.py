@@ -28,6 +28,27 @@ def repo_relative(repo_path: Path, path: str) -> str:
         return path
 
 
+# Output files the pipeline itself writes into the clone during a run.
+# Semgrep must never scan these as source: gitleaks runs first, so its
+# report already exists when semgrep starts — every secret gitleaks found
+# would otherwise be duplicated as a second (semgrep JWT) finding.
+# Generic rule: never scan files the pipeline itself wrote.
+PIPELINE_OUTPUT_FILES = frozenset({
+    ".gitleaks-report.json",
+    ".semgrep.json",
+    ".osv-report.json",
+})
+
+
+def is_pipeline_output(path: str) -> bool:
+    """True for pipeline-written report files (by basename)."""
+    try:
+        name = path.replace("\\", "/").split("/")[-1].strip()
+    except Exception:
+        return False
+    return name in PIPELINE_OUTPUT_FILES
+
+
 class SourceScanner(ABC):
     name: str
 

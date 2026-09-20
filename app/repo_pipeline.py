@@ -27,11 +27,15 @@ SOURCE_SCANNERS = [GitleaksScanner, SemgrepScanner, OsvScanner]
 def repo_summary(job: RepoScanJob, raw_count: int) -> dict:
     """Top-level rollup the dashboard renders first (Q6)."""
     secret_keys = ("secret", "private-key", "private key", "api-key", "api key",
-                   "token", "password", "passwd", "akia", "bcrypt")
-    secrets = sum(
-        1 for f in job.findings
-        if any(k in f"{f.title or ''} {f.description or ''}".lower() for k in secret_keys)
-    )
+                   "token", "password", "passwd", "akia", "bcrypt", "jwt")
+    secrets = 0
+    test_secrets = 0
+    for f in job.findings:
+        if any(k in f"{f.title or ''} {f.description or ''}".lower() for k in secret_keys):
+            if (f.raw or {}).get("likely_test_fixture"):
+                test_secrets += 1
+            else:
+                secrets += 1
     merged = sum(int((f.raw or {}).get("merged_count", 1)) - 1 for f in job.findings)
     # Scope split (Q6/S2): OSV findings carry raw.scope (runtime/dev/
     # mixed/unknown); first-party findings have no scope and count as
@@ -53,6 +57,7 @@ def repo_summary(job: RepoScanJob, raw_count: int) -> dict:
         "merged_duplicates": max(0, merged),
         "files_scanned": job.files_scanned,
         "findings_with_secrets": secrets,
+        "findings_with_test_secrets": test_secrets,
         "scanners": list(job.scanners_run),
     }
 

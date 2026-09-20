@@ -12,7 +12,11 @@ import subprocess
 from app.config import ROOT, settings
 from app.models import Finding, Severity
 from app.repo import is_vendored, iter_repo_files
-from app.scanners.source_base import SourceScanner
+from app.scanners.source_base import (
+    PIPELINE_OUTPUT_FILES,
+    SourceScanner,
+    is_pipeline_output,
+)
 
 HEURISTICS: list[tuple[str, re.Pattern[str], Severity, str]] = [
     # SQL: keyword followed by concat/interpolation into the string.
@@ -146,12 +150,23 @@ class SemgrepScanner(SourceScanner):
 
     def _via_binary(self) -> list[Finding]:
         out = self.repo_path / ".semgrep.json"
+        # Never scan files the pipeline itself wrote: .gitleaks-report.json
+        # already exists when semgrep starts (gitleaks runs first), so
+        # without these excludes every gitleaks secret is duplicated as a
+        # semgrep JWT finding. Belt + suspenders: --exclude flags for the
+        # binary plus a result-path filter below (covers stale outputs and
+        # semgrep versions that ignore --exclude).
         cmd = [
             settings.semgrep_bin, "--config", "auto",
             *_custom_rules_args(),
+            *(f"--exclude={name}" for name in sorted(PIPELINE_OUTPUT_FILES)),
             "--json", "--output", str(out), "--quiet",
             str(self.repo_path),
         ]
+        try:
+            out.unlink(missing_ok=True)
+        except Exception:
+            pass
         try:
             subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         except FileNotFoundError:
@@ -169,6 +184,8 @@ class SemgrepScanner(SourceScanner):
                 continue
             check = str(r.get("check_id", "semgrep"))
             path = self._rel(str(r.get("path", "")))
+            if is_pipeline_output(path):
+                continue
             extra = r.get("extra")
             if not isinstance(extra, dict):
                 extra = {}
@@ -224,6 +241,9 @@ class SemgrepScanner(SourceScanner):
     def _via_heuristics(self, note: str) -> list[Finding]:
         findings: list[Finding] = []
         for path in iter_repo_files(self.repo_path):
+            # Pipeline-written reports are never source code.
+            if is_pipeline_output(path.name):
+                continue
             # Vendored trees (static/, migrations/, *.min.js, jquery etc.)
             # matched the SQL-concat regex on string literals -> 13 pure
             # FPs on django.nV. First-party code only.

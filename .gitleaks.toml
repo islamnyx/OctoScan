@@ -12,11 +12,14 @@ keywords = ["api_key", "api-key", "apikey"]
 tags = ["api", "key"]
 
 [allowlist]
-description = "docs and placeholders"
+description = "docs and placeholders + pipeline-written reports (never source)"
 paths = [
   '''\.venv/''',
   '''resources/''',
   '''data/scans/''',
+  '''\.gitleaks-report\.json$''',
+  '''\.semgrep\.json$''',
+  '''\.osv-report\.json$''',
 ]
 regexes = [
   '''(?i)example|placeholder|test|changeme|change-me|<your-''',
