@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from scan_toolkit import models  # noqa: F401 — registers models on Base.metadata
+from scan_toolkit import queue as _queue  # noqa: F401 — registers ScanJob on Base.metadata
 from scan_toolkit.db import Base, create_engine, session_factory
 
 _IN_MEMORY_KWARGS = {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool}

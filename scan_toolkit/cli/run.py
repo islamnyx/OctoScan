@@ -1,18 +1,29 @@
 import typer
 
 from scan_toolkit.db import init_db, session_scope
+from scan_toolkit.queue import requires_queue
 from scan_toolkit.stages import run_stage
 
 
 def run_scan(
     engagement: str = typer.Option(..., "--engagement", help="Engagement ID"),
-    stage_name: str = typer.Option("static", "--stage", help="static | sca (Phase 5+)"),
+    stage_name: str = typer.Option("static", "--stage", help="static | sca | dynamic | api"),
     analyze: bool = typer.Option(
         False, "--analyze", help="Run LLM agent after tools to produce Finding rows"
     ),
 ):
-    """Run a scan stage (static now; sca/dynamic/api later) and store raw results."""
+    """Run a scan stage and store raw results.
+
+    Static/SCA stages run inline. Dynamic/API stages are enqueued and
+    processed through the concurrency-limited job queue.
+    """
     engine = init_db()
+
+    if requires_queue(stage_name):
+        _enqueue_job(engine, engagement, stage_name, analyze)
+        return
+
+    # Inline execution (static / sca).
     with session_scope(engine) as session:
         try:
             result = run_stage(session, engagement, stage_name)
@@ -38,6 +49,26 @@ def run_scan(
         _run_sca_agent(engine, engagement, result.ir_path)
     elif analyze:
         typer.echo(f"[analyze] LLM agent for stage '{stage_name}' not implemented yet.")
+
+
+def _enqueue_job(engine, engagement_id: str, stage_name: str, analyze: bool):
+    """Enqueue a resource-heavy stage into the job queue."""
+    from scan_toolkit.queue import JobQueue
+
+    queue = JobQueue(engine)
+    with session_scope(engine) as session:
+        try:
+            job = queue.submit(
+                session, engagement_id=engagement_id, stage=stage_name, analyze=analyze,
+            )
+        except ValueError as exc:
+            typer.echo(f"[run] {exc}", err=True)
+            raise typer.Exit(1)
+
+    typer.echo(
+        f"Enqueued job {job.id} for engagement {engagement_id} stage '{stage_name}'.\n"
+        f"Run 'scan-toolkit worker' to process the queue, or 'scan-toolkit status' to check."
+    )
 
 
 def _run_static_agent(engine, engagement_id: str, ir_path):

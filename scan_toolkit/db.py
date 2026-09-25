@@ -51,6 +51,7 @@ def init_db(url: str | None = None) -> sa.engine.Engine:
     """Create tables (idempotent).  Imports all models so Base.metadata is populated."""
     from scan_toolkit.config import ensure_runtime_dirs, get_settings  # noqa: F811
     import scan_toolkit.models  # noqa: F401 — triggers model registration on Base.metadata
+    import scan_toolkit.queue  # noqa: F401 — registers ScanJob on Base.metadata
 
     ensure_runtime_dirs()
     target_url = url or get_settings().db_url

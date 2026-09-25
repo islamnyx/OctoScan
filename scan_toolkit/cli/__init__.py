@@ -7,16 +7,18 @@ later phases flesh out.
 
 import typer
 
-from scan_toolkit.cli import intake, report, run, status
+from scan_toolkit.cli import intake, report, run, status, worker
 
 
 def register(parent: typer.Typer) -> None:
     """Register all subcommands on the root Typer app.
 
-    intake is a group (create + validate); run/status/report stay flat commands
-    per the CLI contract in the spec (e.g. ``scan-toolkit run --stage static``).
+    intake is a group (create + validate); run/status/report/worker stay flat
+    commands per the CLI contract in the spec.
     """
     parent.add_typer(intake.app, name="intake")
     parent.command(name="run")(run.run_scan)
     parent.command(name="status")(status.show_status)
     parent.command(name="report")(report.generate_report)
+    parent.command(name="worker")(worker.run_worker)
+    parent.command(name="queue")(worker.show_queue)
