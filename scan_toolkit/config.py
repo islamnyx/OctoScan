@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # the standard workflow is per-role HAR files (see stages.run_api docs).
     mitmdump_bin: str = "mitmdump"
 
+    # ---- dynamic stage (Phase 8) ----
+    # All three must exist on the analyst machine; the stage degrades with
+    # install hints when any is missing (verified per-tool at runtime).
+    adb_bin: str = "adb"
+    emulator_bin: str = "emulator"
+    frida_bin: str = "frida"
+    # Headless AVD to boot (create once: avdmanager create avd -n <name> ...).
+    dynamic_avd: str = "toolkit-avd"
+    frida_scripts_dir: Path = ROOT / "scan_toolkit" / "frida_scripts"
+
     # ---- tool execution ----
     tool_timeout_seconds: int = 600
 

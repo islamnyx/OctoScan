@@ -23,8 +23,8 @@ from scan_toolkit.api_traffic import (
 from scan_toolkit.engagements import get_engagement, load_test_accounts
 from scan_toolkit.intermediate import IRToolOutput, StageIR
 from scan_toolkit.tools import (
-    ApktoolRunner, GrypeRunner, JadxRunner, MitmRunner, MobsfRunner,
-    OsvRunner, SemgrepRunner, ToolRunner, ZAPRunner,
+    ApktoolRunner, EmulatorRunner, FridaRunner, GrypeRunner, JadxRunner,
+    MitmRunner, MobsfRunner, OsvRunner, SemgrepRunner, ToolRunner, ZAPRunner,
 )
 from scan_toolkit.tools.deps import Dependency, extract_dependencies
 
@@ -63,7 +63,9 @@ def run_stage(session: Session, engagement_id: str, stage: str) -> StageResult:
         return run_sca(session, engagement)
     if stage == "api":
         return run_api(session, engagement)
-    raise ValueError(f"stage {stage!r} not implemented yet (dynamic lands in Phase 8)")
+    if stage == "dynamic":
+        return run_dynamic(session, engagement)
+    raise ValueError(f"stage {stage!r} unknown (valid: static, sca, api, dynamic)")
 
 
 def run_static(
@@ -468,3 +470,166 @@ def run_api(
         errors=errors,
         notes=notes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic stage (Phase 8)
+# ---------------------------------------------------------------------------
+
+def _static_manifest_path(engagement_id: str) -> Path | None:
+    """AndroidManifest.xml from the static stage's apktool output, if any."""
+    candidate = (
+        _stage_dir(engagement_id, "static")
+        / "tools" / "apktool" / "decoded" / "AndroidManifest.xml"
+    )
+    return candidate if candidate.exists() else None
+
+
+def run_dynamic(
+    session: Session,
+    engagement,
+    *,
+    emulator: EmulatorRunner | None = None,
+    frida: FridaRunner | None = None,
+    package_name: str | None = None,
+    keep_emulator: bool = False,
+) -> StageResult:
+    """Run the dynamic analysis stage for an engagement.
+
+    1. Boot the headless AVD + install the APK (EmulatorRunner).
+    2. Spawn the app under each bundled Frida script (FridaRunner).
+    3. Collect observations: dumpsys, logcat, exported-component surface.
+    4. Tear down the emulator we booted (unless keep_emulator).
+
+    Without emulator/ADB/Frida on the machine the stage degrades to a
+    failed-but-informative result (install hints in errors) — never fake
+    findings.  Tool params are injectable for tests.
+    """
+    checklist = engagement.intake
+    if checklist is None or not checklist.binary_path or not Path(checklist.binary_path).exists():
+        raise ValueError(f"engagement {engagement.id} has no stored, readable binary (run intake first)")
+
+    stage_dir = _stage_dir(engagement.id, "dynamic")
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    workdir = stage_dir / "tools"
+    apk = Path(checklist.binary_path)
+
+    emu = emulator or EmulatorRunner(workdir)
+    frida_runner = frida or FridaRunner(workdir)
+
+    tool_outputs: list[IRToolOutput] = []
+    errors: list[str] = []
+    notes: list[str] = []
+
+    def _collect(output: IRToolOutput) -> None:
+        tool_outputs.append(output)
+        errors.extend(f"{output.tool}: {e}" for e in output.errors)
+
+    manifest_path = _static_manifest_path(engagement.id)
+    if manifest_path is None:
+        notes.append("no static-stage manifest found — run the static stage "
+                     "first for exported-component enumeration")
+
+    booted = False
+    device: str | None = None
+    package = (package_name or "").strip()
+
+    # 1. Boot + install.
+    try:
+        device = emu.boot()
+        booted = True
+        notes.append(f"emulator {device} booted (AVD {emu._settings.dynamic_avd})")
+        emu.install(apk)
+        notes.append(f"installed {checklist.binary_filename} on {device}")
+    except RuntimeError as exc:
+        _collect(IRToolOutput(tool="emulator", errors=[str(exc)]))
+        notes.append("dynamic instrumentation skipped — no emulator/device")
+
+    # 2. Frida instrumentation (needs a device AND a package name).
+    if booted and device:
+        if not package:
+            # Best effort: package from the static-stage manifest.
+            package = _package_from_manifest(manifest_path)
+            if package:
+                notes.append(f"package resolved from static manifest: {package}")
+        if not package:
+            _collect(IRToolOutput(tool="frida", errors=[
+                "no app package name — pass package_name or run the static "
+                "stage first so it can be read from AndroidManifest.xml",
+            ]))
+        else:
+            _collect(frida_runner.run(package, device=device))
+    elif not booted:
+        notes.append("frida skipped — no device (emulator unavailable)")
+
+    # 3. Observations (dumpsys/logcat/manifest) — only with a live device.
+    if booted and device:
+        try:
+            _collect(emu.observe(package or "unknown", manifest_path))
+        except Exception as exc:  # noqa: BLE001 — observations are best effort
+            _collect(IRToolOutput(tool="emulator-observations",
+                                  errors=[f"observation collection failed: {exc}"]))
+    if booted and not keep_emulator:
+        emu.teardown()
+        notes.append("emulator torn down (pass keep_emulator=True to keep it)")
+    elif booted:
+        notes.append(f"emulator {device} left running for analyst follow-up")
+
+    if not frida_runner.available():
+        notes.append("frida CLI not on PATH — install frida-tools + push "
+                     "frida-server to the emulator for instrumented runs")
+
+    status = "completed" if not errors else ("partial" if tool_outputs else "failed")
+    ir = StageIR(
+        engagement_id=engagement.id,
+        stage="dynamic",
+        input={
+            "binary": checklist.binary_filename,
+            "platform": engagement.app_platform.value if engagement.app_platform else None,
+            "package": package or None,
+            "device": device,
+            "scripts": [p.name for p in frida_runner.scripts()],
+        },
+        tools=tool_outputs,
+        notes=notes,
+    )
+    ir_path = stage_dir / "dynamic_ir.json"
+    ir_path.write_text(ir.model_dump_json(indent=2))
+
+    summary_path = stage_dir / "stage_result.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "status": status,
+                "engagement_id": engagement.id,
+                "stage": "dynamic",
+                "errors": errors,
+                "notes": notes,
+                "ran_at": ir.ran_at,
+                "tools": [t.model_dump(mode="json") for t in tool_outputs],
+            },
+            indent=2,
+        )
+    )
+    return StageResult(
+        status=status,
+        engagement_id=engagement.id,
+        stage="dynamic",
+        artifacts_dir=stage_dir,
+        ir_path=ir_path,
+        tools=tool_outputs,
+        errors=errors,
+        notes=notes,
+    )
+
+
+def _package_from_manifest(manifest_path: Path | None) -> str:
+    """Read the app package from AndroidManifest.xml ('' when unavailable)."""
+    if manifest_path is None or not manifest_path.exists():
+        return ""
+    import xml.etree.ElementTree as ET
+
+    try:
+        return ET.parse(manifest_path).getroot().get("package", "") or ""
+    except ET.ParseError:
+        return ""

@@ -6,9 +6,19 @@ later phases consume this normalized shape, never the raw tool dumps.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from scan_toolkit.intermediate import IRFinding
+
+
+# ---------------------------------------------------------------------------
+# Shared secret-key hint (storage keys that suggest sensitive content)
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_KEY_RE = re.compile(
+    r"(?i)(token|secret|password|passwd|auth|session|credential|pin|ssn|card)"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +116,395 @@ def zap_findings(alerts: list[dict[str, Any]]) -> list[IRFinding]:
                 },
             )
         )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Frida runtime events (dicts emitted by scan_toolkit/frida_scripts/*.js)
+# ---------------------------------------------------------------------------
+
+def frida_findings(events: list[dict[str, Any]]) -> list[IRFinding]:
+    """Map Frida script events to IRFinding entries.
+
+    Dynamic findings carry high confidence — the behaviour was OBSERVED at
+    runtime, not pattern-matched.  ``hook-error`` events are NOT findings;
+    the Frida runner surfaces those as tool errors.
+    """
+    out: list[IRFinding] = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        kind = ev.get("event")
+        handler = _FRIDA_HANDLERS.get(kind)
+        if handler is None:
+            continue  # unknown/observation-only event (hash-use, file-write...)
+        finding = handler(ev)
+        if finding is not None:
+            out.append(finding)
+    return out
+
+
+def _frida_base(ev: dict, *, rule_id: str, category: str) -> dict:
+    return {
+        "tool": "frida",
+        "rule_id": rule_id,
+        "category": category,
+        "confidence": "high",  # observed at runtime
+        "raw": {"script": ev.get("script"), "event": ev.get("event")},
+    }
+
+
+def _ev_shared_prefs(ev: dict) -> IRFinding | None:
+    key = str(ev.get("key", ""))
+    sensitive = bool(_SENSITIVE_KEY_RE.search(key))
+    return IRFinding(
+        **_frida_base(ev, rule_id="plaintext-shared-prefs",
+                      category="insecure_storage"),
+        title=(
+            f"Sensitive value in plaintext SharedPreferences: {key[:80]}"
+            if sensitive else
+            f"Plaintext SharedPreferences write: {key[:80]} (review contents)"
+        ),
+        severity="high" if sensitive else "low",
+        cwe_id="CWE-312",
+        description=(
+            f"The app wrote key {key!r} to SharedPreferences without "
+            "encryption (observed at runtime). "
+            + ("The key name suggests sensitive content — verify what is "
+               "stored and move it to EncryptedSharedPreferences. "
+               if sensitive else
+               "Confirm the stored value is non-sensitive; otherwise move "
+               "it to EncryptedSharedPreferences. ")
+        ),
+        evidence=f"SharedPreferences.Editor.putString({key!r}, …) observed",
+        recommendation="Use EncryptedSharedPreferences for any sensitive values.",
+    )
+
+
+def _ev_world_file(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="world-accessible-file",
+                      category="insecure_storage"),
+        title=f"World-accessible file created: {ev.get('name')}",
+        severity="high",
+        cwe_id="CWE-276",
+        description=(
+            f"openFileOutput({ev.get('name')!r}, mode={ev.get('mode')}) — "
+            "MODE_WORLD_READABLE/WRITEABLE exposes the file to other apps."
+        ),
+        evidence=f"openFileOutput name={ev.get('name')} mode={ev.get('mode')}",
+        recommendation="Use MODE_PRIVATE (or scoped storage) for app files.",
+    )
+
+
+def _ev_sqlite(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="sqlite-write", category="insecure_storage"),
+        title="SQLite database write observed (verify encryption)",
+        severity="info",
+        description=(
+            "The app wrote to a local SQLite database during the "
+            "instrumented run. Confirm sensitive tables use SQLCipher (or "
+            "equivalent) — statement shape only is recorded, not row data."
+        ),
+        evidence=f"SQLiteDatabase.execSQL({str(ev.get('sql', ''))[:200]})",
+        recommendation="Encrypt databases holding sensitive data (SQLCipher).",
+    )
+
+
+def _ev_weak_hash(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="weak-hash", category="weak_cryptography"),
+        title=f"Weak hash in use at runtime: {ev.get('algorithm')}",
+        severity="medium",
+        cwe_id="CWE-327",
+        description=(
+            f"MessageDigest.getInstance({ev.get('algorithm')!r}) was called. "
+            "MD5/SHA-1 are broken for integrity/password purposes."
+        ),
+        evidence=f"MessageDigest.getInstance({ev.get('algorithm')}) observed",
+        recommendation="Use SHA-256+ (or bcrypt/argon2 for passwords).",
+    )
+
+
+def _ev_weak_cipher(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="weak-cipher", category="weak_cryptography"),
+        title=f"Weak cipher transformation: {ev.get('transformation')}",
+        severity="high",
+        cwe_id="CWE-327",
+        description=(
+            f"Cipher.getInstance({ev.get('transformation')!r}) — DES or ECB "
+            "mode observed at runtime. ECB leaks plaintext patterns; DES is "
+            "brute-forceable."
+        ),
+        evidence=f"Cipher.getInstance({ev.get('transformation')}) observed",
+        recommendation="Use AES/GCM (or ChaCha20-Poly1305) with a random IV.",
+    )
+
+
+def _ev_securerandom_seed(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="securerandom-seed",
+                      category="weak_cryptography"),
+        title="Manual SecureRandom.setSeed(byte[]) call observed",
+        severity="low",
+        cwe_id="CWE-330",
+        description=(
+            "The app overrode SecureRandom's seed at runtime. A static seed "
+            "makes output predictable — verify the seed is itself random "
+            "(or remove the call; the OS seeds SecureRandom adequately)."
+        ),
+        evidence="SecureRandom.setSeed(byte[]) observed",
+        recommendation="Do not call setSeed with static bytes.",
+    )
+
+
+def _ev_trustmanager(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="custom-trustmanager",
+                      category="insecure_transport"),
+        title=f"Custom X509TrustManager in use: {ev.get('impl')}",
+        severity="low",
+        cwe_id="CWE-297",
+        description=(
+            f"TLS validation ran through {ev.get('impl')}. A custom "
+            "TrustManager is where trust-all bypasses hide — cross-check "
+            "the static findings for an empty checkServerTrusted, and "
+            "confirm the production build pins or properly validates."
+        ),
+        evidence=f"checkServerTrusted via {ev.get('impl')} observed",
+        recommendation="Validate the TrustManager impl; prefer pinning.",
+    )
+
+
+def _ev_hostname_verify(ev: dict) -> IRFinding | None:
+    if ev.get("result") is not True:
+        return None
+    return IRFinding(
+        **_frida_base(ev, rule_id="hostname-verify-true",
+                      category="insecure_transport"),
+        title=f"HostnameVerifier accepted: {ev.get('hostname')}",
+        severity="low",
+        cwe_id="CWE-297",
+        description=(
+            f"{ev.get('impl')} returned true for {ev.get('hostname')!r}. "
+            "Accepts are normal for valid hosts — flag only if the impl is "
+            "custom/permissive (compare with static analysis)."
+        ),
+        evidence=f"HostnameVerifier.verify({ev.get('hostname')}) -> true",
+        recommendation="Ensure the verifier is the default strict one.",
+    )
+
+
+def _ev_webview_ssl(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="webview-ssl-proceed",
+                      category="insecure_transport"),
+        title="WebView tapped through a TLS error (SslErrorHandler.proceed)",
+        severity="high",
+        cwe_id="CWE-297",
+        description=(
+            "The app called SslErrorHandler.proceed() — it continues loading "
+            "a page after a certificate error, defeating TLS for WebView "
+            "content (MITM-able)."
+        ),
+        evidence="SslErrorHandler.proceed() observed at runtime",
+        recommendation="Call cancel() on SSL errors, never proceed().",
+    )
+
+
+def _ev_cleartext_url(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="cleartext-url",
+                      category="insecure_transport"),
+        title=f"Cleartext HTTP request at runtime: {str(ev.get('url', ''))[:100]}",
+        severity="medium",
+        description=(
+            "The app opened a plaintext http:// URL while instrumented. "
+            "Observed on the wire path — stronger than a static manifest "
+            "flag."
+        ),
+        evidence=f"java.net.URL({str(ev.get('url', ''))[:200]})",
+        recommendation="Move the endpoint to HTTPS; forbid cleartext.",
+    )
+
+
+def _ev_debugger(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="debugger-connected",
+                      category="insufficient_protection"),
+        title="Debugger attachment observed (expected under instrumentation)",
+        severity="info",
+        description=(
+            "Debug.isDebuggerConnected() returned true — normal for a "
+            "Frida-instrumented run. Relevant only if the app is supposed "
+            "to refuse debuggable sessions in release builds."
+        ),
+        evidence="Debug.isDebuggerConnected() -> true",
+        recommendation="Ensure release builds set android:debuggable=false.",
+    )
+
+
+def _ev_sensitive_exec(ev: dict) -> IRFinding:
+    return IRFinding(
+        **_frida_base(ev, rule_id="sensitive-exec",
+                      category="insufficient_protection"),
+        title=f"App executed shell command: {' '.join(map(str, ev.get('argv', [])))[:100]}",
+        severity="info",
+        description=(
+            "Runtime.exec with su/busybox/mount/getprop-style argv — "
+            "typically the app's own root/environment checks firing. "
+            "Context for the root-detection-bypass test (which check to "
+            "patch and re-run)."
+        ),
+        evidence=f"Runtime.exec({ev.get('argv')}) observed",
+        recommendation="Map each check before attempting bypass.",
+    )
+
+
+def _ev_build_tags(ev: dict) -> IRFinding | None:
+    if "test-keys" not in str(ev.get("tags", "")):
+        return None
+    return IRFinding(
+        **_frida_base(ev, rule_id="test-keys-build",
+                      category="insufficient_protection"),
+        title="App running on a test-keys (debug/emulator) build",
+        severity="low",
+        description=(
+            "Build.TAGS contains test-keys — the instrumented environment "
+            "is not a production-signed build. Findings about missing "
+            "root/debug defences must be re-verified on a release build."
+        ),
+        evidence=f"Build.TAGS={ev.get('tags')}",
+        recommendation="Re-run critical dynamic checks on a release build.",
+    )
+
+
+_FRIDA_HANDLERS = {
+    "shared-prefs-write": _ev_shared_prefs,
+    "shared-prefs-write-set": _ev_shared_prefs,
+    "world-accessible-file": _ev_world_file,
+    "sqlite-exec": _ev_sqlite,
+    "weak-hash": _ev_weak_hash,
+    "weak-cipher": _ev_weak_cipher,
+    "securerandom-seed": _ev_securerandom_seed,
+    "trustmanager-check": _ev_trustmanager,
+    "hostname-verify": _ev_hostname_verify,
+    "webview-ssl-proceed": _ev_webview_ssl,
+    "cleartext-url": _ev_cleartext_url,
+    "debugger-connected": _ev_debugger,
+    "sensitive-exec": _ev_sensitive_exec,
+    "build-tags": _ev_build_tags,
+    # Observation-only events (no finding): hash-use, cipher-use, file-write.
+}
+
+
+# ---------------------------------------------------------------------------
+# Exported components (parsed from the apktool-decoded AndroidManifest.xml)
+# ---------------------------------------------------------------------------
+
+def manifest_exported_findings(components: list[dict[str, Any]]) -> list[IRFinding]:
+    """Map parsed manifest components to IRFinding entries.
+
+    ``components``: {kind, name, exported: bool, permission: str|None}.
+    Exported + no permission guard = runtime-attackable surface (medium);
+    exported WITH a permission = recorded as info for the LLM/reviewer.
+    Unexported components are skipped (no finding).
+    """
+    out: list[IRFinding] = []
+    for comp in components:
+        if not comp.get("exported"):
+            continue
+        name = str(comp.get("name", "?"))
+        kind = str(comp.get("kind", "component"))
+        permission = comp.get("permission")
+        if permission:
+            out.append(IRFinding(
+                tool="emulator",
+                rule_id="exported-with-permission",
+                category="exposed_component",
+                title=f"Exported {kind} (permission-guarded): {name[:120]}",
+                severity="info",
+                confidence="high",  # read from the shipped manifest
+                cwe_id="CWE-926",
+                file="AndroidManifest.xml",
+                description=(
+                    f"{kind} {name!r} is exported but guarded by permission "
+                    f"{permission!r}. Verify the permission's protectionLevel "
+                    "is signature-level for sensitive components."
+                ),
+                evidence=f"<{kind} android:name={name!r} permission={permission!r}>",
+                recommendation="Prefer signature-level permissions; unexport if unused.",
+                raw={"kind": kind, "permission": permission},
+            ))
+        else:
+            out.append(IRFinding(
+                tool="emulator",
+                rule_id="exported-no-permission",
+                category="exposed_component",
+                title=f"Exported {kind} without permission: {name[:120]}",
+                severity="medium",
+                confidence="high",
+                cwe_id="CWE-926",
+                file="AndroidManifest.xml",
+                description=(
+                    f"{kind} {name!r} is exported with no permission guard — "
+                    "any app on the device can invoke it. CANDIDATE for "
+                    "runtime exercising: send it crafted intents during the "
+                    "instrumented run and watch for crashes/data leaks."
+                ),
+                evidence=f"<{kind} android:name={name!r} exported=true, no permission>",
+                recommendation="Set exported=false or add a permission guard.",
+                raw={"kind": kind},
+            ))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Logcat observations (structured hits from tools/emulator.scan_logcat_text)
+# ---------------------------------------------------------------------------
+
+def logcat_findings(hits: list[dict[str, Any]]) -> list[IRFinding]:
+    """Map logcat scan hits ({kind, tag, line}) to IRFinding entries."""
+    out: list[IRFinding] = []
+    for hit in hits:
+        kind = hit.get("kind")
+        line = str(hit.get("line", ""))[:300]
+        if kind == "cleartext-url":
+            out.append(IRFinding(
+                tool="emulator",
+                rule_id="logcat-cleartext-url",
+                category="insecure_transport",
+                title="Cleartext URL in logcat output",
+                severity="medium",
+                confidence="high",
+                description=(
+                    "A plaintext http:// URL appeared in logcat during the "
+                    "instrumented run — corroborates runtime cleartext traffic."
+                ),
+                evidence=line,
+                recommendation="Move the endpoint to HTTPS.",
+                raw={"tag": hit.get("tag")},
+            ))
+        elif kind == "credential-in-log":
+            out.append(IRFinding(
+                tool="emulator",
+                rule_id="credential-in-log",
+                category="sensitive_data_exposure",
+                title="Possible credential/secret written to logcat",
+                severity="high",
+                confidence="medium",  # label-matched, verify the value
+                cwe_id="CWE-532",
+                description=(
+                    "A logcat line pairs a secret label (password/token/...) "
+                    "with a value. Logcat is readable by other apps with "
+                    "READ_LOGS on older platforms and leaks into bug reports."
+                ),
+                evidence=line,
+                recommendation="Strip secrets from all log output.",
+                raw={"tag": hit.get("tag")},
+            ))
     return out
 # ---------------------------------------------------------------------------
 

@@ -2,6 +2,8 @@
 
 from scan_toolkit.tools.apktool import ApktoolRunner
 from scan_toolkit.tools.base import ToolRunner
+from scan_toolkit.tools.emulator import EmulatorRunner
+from scan_toolkit.tools.frida import FridaRunner
 from scan_toolkit.tools.grype import GrypeRunner
 from scan_toolkit.tools.jadx import JadxRunner
 from scan_toolkit.tools.mitmproxy import MitmRunner
@@ -12,6 +14,8 @@ from scan_toolkit.tools.zap import ZAPRunner
 
 __all__ = [
     "ApktoolRunner",
+    "EmulatorRunner",
+    "FridaRunner",
     "GrypeRunner",
     "JadxRunner",
     "MitmRunner",

@@ -373,12 +373,19 @@ def _execute_job(engine: sa.engine.Engine, job_id: str) -> None:
         result = run_stage(session, job.engagement_id, job.stage)
         job.result_summary = result.summary_line()
 
-        # LLM agent pass (Phase 7+: api; dynamic follows in Phase 8).
+        # LLM agent pass (Phase 7+: api; Phase 8: dynamic).
         # Agent failures propagate -> the job is marked failed (fail loudly,
         # never silently drop the analysis the analyst asked for).
-        if job.analyze and job.stage == "api":
-            from scan_toolkit.agents import APIBackendAgent
+        if job.analyze and job.stage in ("api", "dynamic"):
+            if job.stage == "api":
+                from scan_toolkit.agents import APIBackendAgent
 
-            agent = APIBackendAgent()
+                agent = APIBackendAgent()
+                label = "API"
+            else:
+                from scan_toolkit.agents import DynamicAnalysisAgent
+
+                agent = DynamicAnalysisAgent()
+                label = "Dynamic"
             findings = agent.run(session, job.engagement_id, result.ir_path)
-            job.result_summary += f"\nAPI agent: {len(findings)} findings"
+            job.result_summary += f"\n{label} agent: {len(findings)} findings"
