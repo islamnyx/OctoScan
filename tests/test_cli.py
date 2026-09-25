@@ -36,7 +36,13 @@ def test_status_stub():
 
 
 def test_report_stub():
-    result = runner.invoke(app, ["report", "dummy-engagement-id"])
+    result = runner.invoke(app, ["report", "--help"])
     assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
-    assert "phase 10" in result.output.lower()
+    assert "--engagement" in result.output
+    assert "--format" in result.output
+
+
+def test_review_stub():
+    result = runner.invoke(app, ["review", "--help"])
+    assert result.exit_code == 0
+    assert "--engagement" in result.output

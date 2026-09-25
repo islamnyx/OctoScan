@@ -9,7 +9,8 @@ from the real tools.
 from scan_toolkit.agents.api_agent import APIBackendAgent
 from scan_toolkit.agents.correlation import CorrelationAgent
 from scan_toolkit.agents.dynamic import DynamicAnalysisAgent
+from scan_toolkit.agents.report import ReportAgent
 from scan_toolkit.agents.sca import SCAAgent
 from scan_toolkit.agents.static import StaticAnalysisAgent
 
-__all__ = ["APIBackendAgent", "CorrelationAgent", "DynamicAnalysisAgent", "StaticAnalysisAgent", "SCAAgent"]
+__all__ = ["APIBackendAgent", "CorrelationAgent", "DynamicAnalysisAgent", "ReportAgent", "StaticAnalysisAgent", "SCAAgent"]
