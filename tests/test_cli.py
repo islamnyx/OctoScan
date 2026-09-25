@@ -29,10 +29,9 @@ def test_run_requires_engagement_flag():
 
 
 def test_status_stub():
-    result = runner.invoke(app, ["status"])
+    result = runner.invoke(app, ["status", "--help"])
     assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
-    assert "phase 11" in result.output.lower()
+    assert "--engagement" in result.output
 
 
 def test_report_stub():

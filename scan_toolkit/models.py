@@ -250,3 +250,36 @@ class IntakeChecklist(Base):
             "network_constraints": self.network_constraints,
             "api_scan_in_scope": self.api_scan_in_scope,
         }
+
+
+class AuditEvent(Base):
+    """Append-only audit log — who ran what, when (Phase 11).
+
+    Written by every mutating CLI command (intake, run, worker, correlate,
+    review, report).  ``engagement_id`` is a plain string, deliberately NOT
+    a foreign key: the audit trail is independent of engagement rows and
+    must survive anything done to them.  ``details`` carries short,
+    secret-free summaries only (never credentials, tokens, or evidence).
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(sa.String(12), primary_key=True, default=_new_id)
+    actor: Mapped[str] = mapped_column(nullable=False)
+    action: Mapped[str] = mapped_column(nullable=False, index=True)
+    engagement_id: Mapped[str | None] = mapped_column(nullable=True, index=True)
+    details: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "actor": self.actor,
+            "action": self.action,
+            "engagement_id": self.engagement_id,
+            "details": self.details,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

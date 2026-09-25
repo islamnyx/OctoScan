@@ -293,6 +293,11 @@ class JobQueue:
                 if job:
                     job.status = JobStatus.completed
                     job.completed_at = datetime.now(timezone.utc)
+                    from scan_toolkit.audit import audit
+
+                    audit(session, "worker.job", engagement_id=job.engagement_id,
+                          details=f"stage={job.stage} status=completed "
+                                  f"analyze={job.analyze}")
                     log.info("Job %s completed", job_id)
 
         except Exception as exc:
@@ -304,6 +309,11 @@ class JobQueue:
                         job.status = JobStatus.failed
                         job.completed_at = datetime.now(timezone.utc)
                         job.error = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-500:]}"
+                        from scan_toolkit.audit import audit
+
+                        audit(session, "worker.job", engagement_id=job.engagement_id,
+                              details=f"stage={job.stage} status=failed "
+                                      f"error={type(exc).__name__}: {exc}"[:400])
             except Exception:
                 log.exception("Failed to update job %s status to failed", job_id)
 
@@ -343,6 +353,11 @@ class JobQueue:
                     if job:
                         job.status = JobStatus.completed
                         job.completed_at = datetime.now(timezone.utc)
+                        from scan_toolkit.audit import audit
+
+                        audit(session, "worker.job", engagement_id=job.engagement_id,
+                              details=f"stage={job.stage} status=completed "
+                                      f"analyze={job.analyze}")
                         results.append(job.to_dict())
 
             except Exception as exc:
@@ -352,6 +367,11 @@ class JobQueue:
                         job.status = JobStatus.failed
                         job.completed_at = datetime.now(timezone.utc)
                         job.error = str(exc)
+                        from scan_toolkit.audit import audit
+
+                        audit(session, "worker.job", engagement_id=job.engagement_id,
+                              details=f"stage={job.stage} status=failed "
+                                      f"error={type(exc).__name__}: {exc}"[:400])
                         results.append(job.to_dict())
 
         return results

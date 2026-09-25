@@ -18,6 +18,7 @@ def generate_report(
     """
     from scan_toolkit.agents import ReportAgent
     from scan_toolkit.agents.llm_client import LLMError
+    from scan_toolkit.audit import audit
 
     want = [format.lower()] if format.lower() != "all" else ["md", "docx", "pdf"]
     for fmt in want:
@@ -48,6 +49,12 @@ def generate_report(
         except RuntimeError as exc:
             typer.echo(f"[report] {exc}", err=True)
             raise typer.Exit(1)
+
+        audit(
+            session, "report", engagement_id=engagement,
+            details=f"confirmed={metadata['total_findings']} "
+                    f"chains={metadata['attack_chains']} file={md_path.name}",
+        )
 
     typer.echo(f"Report written: {md_path}")
     by_sev = ", ".join(f"{k}={v}" for k, v in metadata["by_severity"].items())

@@ -2,6 +2,7 @@ import typer
 from sqlalchemy.orm import Session
 
 from scan_toolkit import artifacts, engagements
+from scan_toolkit.audit import audit
 from scan_toolkit.db import init_db, session_scope
 from scan_toolkit.models import EngagementStatus, Platform
 
@@ -77,6 +78,12 @@ def create(
             typer.echo(f"[intake] blocked: {exc}", err=True)
             raise typer.Exit(1)
         missing = engagements.intake_missing_items(eng)
+        audit(
+            session, "intake.create", engagement_id=eng.id,
+            details=f"client={client_name} platform={platform.value} "
+                    f"binary={bool(binary)} docs={bool(api_docs)} "
+                    f"credentials={bool(credentials)} api_in_scope={api_in_scope}",
+        )
         summary = {
             "id": eng.id,
             "status": eng.status.value,
@@ -118,7 +125,10 @@ def validate(engagement: str = typer.Argument(..., help="Engagement ID")):
     """Check intake completeness; if complete, advance the engagement to 'scanning'."""
     engine = init_db()
     with session_scope(engine) as session:
-        eng = engagements.get_engagement(session, engagement)
+        try:
+            eng = engagements.get_engagement(session, engagement)
+        except ValueError:
+            eng = None
         if eng is None:
             typer.echo(f"[intake] engagement {engagement!r} not found", err=True)
             raise typer.Exit(1)
@@ -132,4 +142,6 @@ def validate(engagement: str = typer.Argument(..., help="Engagement ID")):
                 typer.echo(f"  - {item}")
             raise typer.Exit(1)
         engagements.advance_engagement_status(session, eng, EngagementStatus.scanning)
+        audit(session, "intake.validate", engagement_id=engagement,
+              details="advanced to scanning")
     typer.echo(f"Engagement {engagement} validated and advanced to 'scanning'.")

@@ -18,6 +18,7 @@ def correlate_findings(
     from scan_toolkit.agents import CorrelationAgent
     from scan_toolkit.agents.correlation import stages_done
     from scan_toolkit.agents.llm_client import LLMError
+    from scan_toolkit.audit import audit
 
     engine = init_db()
     with session_scope(engine) as session:
@@ -46,6 +47,13 @@ def correlate_findings(
         except RuntimeError as exc:
             typer.echo(f"[correlate] {exc}", err=True)
             raise typer.Exit(1)
+
+        audit(
+            session, "correlate", engagement_id=engagement,
+            details=f"chains={len(summary['chains'])} "
+                    f"duplicates={summary['duplicates_marked']} "
+                    f"related={summary['related_updated']}",
+        )
 
     typer.echo(f"Attack chains: {len(summary['chains'])}")
     for chain in summary["chains"]:

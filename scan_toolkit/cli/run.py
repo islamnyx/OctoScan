@@ -1,5 +1,6 @@
 import typer
 
+from scan_toolkit.audit import audit
 from scan_toolkit.db import init_db, session_scope
 from scan_toolkit.queue import requires_queue
 from scan_toolkit.stages import run_stage
@@ -30,6 +31,11 @@ def run_scan(
         except ValueError as exc:
             typer.echo(f"[run] {exc}", err=True)
             raise typer.Exit(1)
+        audit(
+            session, "run.stage", engagement_id=engagement,
+            details=f"stage={stage_name} status={result.status} "
+                    f"findings={sum(len(t.findings) for t in result.tools)}",
+        )
 
     typer.echo(result.summary_line())
     if result.errors:
@@ -64,6 +70,10 @@ def _enqueue_job(engine, engagement_id: str, stage_name: str, analyze: bool):
         except ValueError as exc:
             typer.echo(f"[run] {exc}", err=True)
             raise typer.Exit(1)
+        audit(
+            session, "run.enqueue", engagement_id=engagement_id,
+            details=f"stage={stage_name} job={job.id} analyze={analyze}",
+        )
 
     typer.echo(
         f"Enqueued job {job.id} for engagement {engagement_id} stage '{stage_name}'.\n"

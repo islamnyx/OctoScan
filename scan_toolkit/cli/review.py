@@ -15,6 +15,7 @@ partially applied on error.
 
 import typer
 
+from scan_toolkit.audit import audit
 from scan_toolkit.db import init_db, session_scope
 from scan_toolkit.engagements import get_engagement
 from scan_toolkit.models import Finding, FindingStatus
@@ -45,6 +46,13 @@ def review_findings(
         ]
         if any(ids for ids, _ in transitions):
             _apply(session, engagement, transitions)
+            audit(
+                session, "review", engagement_id=engagement,
+                details=" ".join(
+                    f"{status.value}={len(ids)}" for ids, status in transitions
+                    if ids
+                ),
+            )
 
         findings = (
             session.query(Finding)
