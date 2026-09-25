@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2",
     "httpx>=0.27",
+    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +23,7 @@ dev = ["pytest>=8"]
 scan-toolkit = "scan_toolkit.main:app"
 
 [tool.setuptools]
-packages = ["scan_toolkit", "scan_toolkit.cli", "scan_toolkit.tools"]
+packages = ["scan_toolkit", "scan_toolkit.cli", "scan_toolkit.tools", "scan_toolkit.agents"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
