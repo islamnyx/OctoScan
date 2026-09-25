@@ -6,6 +6,7 @@ never invents findings; it explains, deduplicates, and normalises output
 from the real tools.
 """
 
+from scan_toolkit.agents.sca import SCAAgent
 from scan_toolkit.agents.static import StaticAnalysisAgent
 
-__all__ = ["StaticAnalysisAgent"]
+__all__ = ["StaticAnalysisAgent", "SCAAgent"]

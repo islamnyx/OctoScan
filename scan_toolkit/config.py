@@ -31,12 +31,13 @@ class Settings(BaseSettings):
     # ---- resource limits (Phase 6) ----
     max_concurrent_dynamic_jobs: int = 2
 
-    # ---- tool paths (reserved — unused until Phase 3+) ----
+    # ---- tool paths ----
     apktool_bin: str = "apktool"
     jadx_bin: str = "jadx"
     semgrep_bin: str = "semgrep"
     mobsf_base_url: str = "http://127.0.0.1:8000"
     mobsf_api_key: str = ""
+    grype_bin: str = "grype"
 
     # ---- tool execution ----
     tool_timeout_seconds: int = 600
