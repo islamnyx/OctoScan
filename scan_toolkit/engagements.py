@@ -10,6 +10,8 @@ silent).
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -164,3 +166,83 @@ def advance_engagement_status(
             )
     engagement.status = target
     session.add(engagement)
+
+
+# ---------------------------------------------------------------------------
+# Test accounts (Phase 7 — API/backend stage)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TestAccount:
+    """One test account from intake credentials.
+
+    Only the role label is ever logged — usernames/tokens/passwords are
+    secrets and must never appear in logs, LLM prompts, or reports
+    (see scan_toolkit.agents.redact).
+    """
+
+    role: str
+    username: str | None = None
+    password: str | None = None
+    token: str | None = None
+    extra: dict | None = None
+
+
+def load_test_accounts(engagement: Engagement) -> list[TestAccount]:
+    """Parse the stored credentials.json into TestAccount entries.
+
+    Accepted shapes (both tolerated — intake just copies the analyst's file)::
+
+        {"accounts": [{"role": "user", "username": ..., "password": ...}]}
+        [{"role": "admin", "username": ..., "password": ...}]
+
+    Returns [] when no credentials were stored (caller decides whether that
+    is fatal — the intake gate already blocks API-in-scope engagements
+    without credentials).  Raises ValueError on malformed JSON or entries
+    missing the required ``role`` key — fail loudly, never silently scan
+    with a misparsed account list.
+    """
+    checklist = engagement.intake
+    if checklist is None or not checklist.has_test_credentials:
+        return []
+    creds_path = artifacts.engagement_dir(engagement.id) / "credentials.json"
+    if not creds_path.exists():
+        raise ValueError(
+            f"engagement {engagement.id} claims stored credentials but "
+            f"{creds_path} is missing"
+        )
+    try:
+        raw = json.loads(creds_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"credentials.json is not valid JSON: {exc}") from exc
+
+    if isinstance(raw, dict):
+        entries = raw.get("accounts", [])
+    elif isinstance(raw, list):
+        entries = raw
+    else:
+        raise ValueError(
+            "credentials.json must be an object with an 'accounts' list "
+            "or a bare list of account objects"
+        )
+    if not isinstance(entries, list):
+        raise ValueError("credentials.json 'accounts' must be a list")
+
+    accounts: list[TestAccount] = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"credentials.json accounts[{i}] must be an object")
+        role = str(entry.get("role") or "").strip()
+        if not role:
+            raise ValueError(
+                f"credentials.json accounts[{i}] is missing required 'role'"
+            )
+        known = {"role", "username", "password", "token"}
+        accounts.append(TestAccount(
+            role=role,
+            username=str(entry["username"]) if entry.get("username") else None,
+            password=str(entry["password"]) if entry.get("password") else None,
+            token=str(entry["token"]) if entry.get("token") else None,
+            extra={k: v for k, v in entry.items() if k not in known} or None,
+        ))
+    return accounts

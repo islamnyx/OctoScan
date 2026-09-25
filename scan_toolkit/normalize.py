@@ -56,6 +56,60 @@ def semgrep_findings(raw: dict[str, Any]) -> list[IRFinding]:
 
 
 # ---------------------------------------------------------------------------
+# ZAP (alerts JSON from /JSON/core/view/alerts/)
+# ---------------------------------------------------------------------------
+
+_ZAP_RISK_TO_SEVERITY = {
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+    "informational": "info",
+}
+
+
+def zap_findings(alerts: list[dict[str, Any]]) -> list[IRFinding]:
+    """Map ZAP alert dicts to IRFinding entries.
+
+    ZAP alert fields used: name/risk/confidence/description/solution/cweid/
+    url/evidence/otherinfo. ``cweid`` is numeric — prefixed to ``CWE-N``.
+    Unknown risk levels fall back to ``medium`` (conservative, not alarming).
+    """
+    out: list[IRFinding] = []
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        risk = str(alert.get("risk") or "").lower()
+        cweid = alert.get("cweid")
+        cwe = None
+        if cweid not in (None, "", 0, "0", -1, "-1"):
+            cwe = f"CWE-{cweid}" if not str(cweid).startswith("CWE-") else str(cweid)
+        name = str(alert.get("name") or "ZAP alert").strip()[:200]
+        url = str(alert.get("url") or "")
+        out.append(
+            IRFinding(
+                tool="zap",
+                rule_id=str(alert.get("pluginId") or alert.get("pluginid") or "")
+                or None,
+                category="backend_vulnerability",
+                title=name or None,
+                severity=_ZAP_RISK_TO_SEVERITY.get(risk, "medium"),
+                confidence=str(alert.get("confidence") or "").lower() or None,
+                cwe_id=cwe,
+                file=url or None,
+                description=str(alert.get("description") or "") or None,
+                evidence=str(alert.get("evidence") or url or "")[:2000] or None,
+                recommendation=str(alert.get("solution") or "") or None,
+                raw={
+                    "risk": alert.get("risk"),
+                    "confidence_raw": alert.get("confidence"),
+                    "otherinfo": alert.get("otherinfo"),
+                },
+            )
+        )
+    return out
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # MobSF (report JSON)
 # ---------------------------------------------------------------------------
 

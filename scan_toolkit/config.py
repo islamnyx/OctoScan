@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     mobsf_api_key: str = ""
     grype_bin: str = "grype"
 
+    # ---- API/backend stage (Phase 7) ----
+    # ZAP runs as a local daemon (default port 8090 — must differ from MobSF's
+    # 8000); the runner drives its REST API for spider + active scan.
+    zap_base_url: str = "http://127.0.0.1:8090"
+    zap_api_key: str = ""
+    # mitmdump binary — used only if the analyst wants CLI-driven capture;
+    # the standard workflow is per-role HAR files (see stages.run_api docs).
+    mitmdump_bin: str = "mitmdump"
+
     # ---- tool execution ----
     tool_timeout_seconds: int = 600
 

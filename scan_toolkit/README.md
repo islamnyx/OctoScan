@@ -8,8 +8,10 @@ Deterministic scanners (Semgrep, MobSF, OSV/Grype, mitmproxy, OWASP ZAP)
 produce findings; LLM agents are layered on top **only** to correlate,
 prioritize, and write reports — the LLM never invents findings.
 
-`scan_toolkit` is built incrementally in phases. **Phase 1** (current) is the
-scaffold + data model. See the plan file for the phase list.
+`scan_toolkit` is built incrementally in phases. Phases 1–7 are implemented
+(static/SCA/API pipelines + agents, intake, SQLite job queue); dynamic
+analysis (Phase 8), correlation (9), reporting (10), and status/polish (11)
+remain. See the root README for the current phase table and workflows.
 
 ## Layout
 
@@ -55,7 +57,9 @@ hardcode credentials or tool paths.
 | `SCAN_TOOLKIT_ANTHROPIC_API_KEY` | *(empty)* | LLM agent key (Phase 4) |
 | `SCAN_TOOLKIT_MAX_CONCURRENT_DYNAMIC_JOBS` | `2` | Dynamic job queue cap (Phase 6) |
 | `SCAN_TOOLKIT_APKTOOL_BIN` / `_JADX_BIN` / `_SEMGREP_BIN` | tool name | Reserved, Phase 3 |
-| `SCAN_TOOLKIT_MOBSF_BASE_URL` / `_MOBSF_API_KEY` | localhost:8000 | Reserved, Phase 3 |
+| `SCAN_TOOLKIT_MOBSF_BASE_URL` / `_MOBSF_API_KEY` | localhost:8000 | MobSF service (Phase 3) |
+| `SCAN_TOOLKIT_ZAP_BASE_URL` / `_ZAP_API_KEY` | localhost:8090 | ZAP daemon (Phase 7) |
+| `SCAN_TOOLKIT_MITMDUMP_BIN` | `mitmdump` | Capture helper — HAR files are the stage input (Phase 7) |
 
 ## Data model
 
