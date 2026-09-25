@@ -22,10 +22,10 @@ def test_intake_help_shows_subcommands():
         assert cmd in result.output
 
 
-def test_run_stub():
+def test_run_requires_engagement_flag():
     result = runner.invoke(app, ["run", "dummy-engagement-id"])
-    assert result.exit_code == 0
-    assert "not implemented" in result.output.lower()
+    assert result.exit_code != 0  # --engagement is an Option now, positional fails
+    assert "--engagement" in result.output
 
 
 def test_status_stub():

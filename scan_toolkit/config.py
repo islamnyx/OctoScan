@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     mobsf_base_url: str = "http://127.0.0.1:8000"
     mobsf_api_key: str = ""
 
+    # ---- tool execution ----
+    tool_timeout_seconds: int = 600
+
+    # ---- Semgrep config ----
+    semgrep_rules_dir: Path = ROOT / "scan_toolkit" / "rules" / "semgrep"
+    semgrep_extra_configs: str = ""
+
     @model_validator(mode="after")
     def _derive_db_url(self) -> "Settings":
         if not self.db_url:

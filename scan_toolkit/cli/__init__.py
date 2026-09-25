@@ -17,6 +17,6 @@ def register(parent: typer.Typer) -> None:
     per the CLI contract in the spec (e.g. ``scan-toolkit run --stage static``).
     """
     parent.add_typer(intake.app, name="intake")
-    parent.command(name="run")(run.run_stage)
+    parent.command(name="run")(run.run_scan)
     parent.command(name="status")(status.show_status)
     parent.command(name="report")(report.generate_report)

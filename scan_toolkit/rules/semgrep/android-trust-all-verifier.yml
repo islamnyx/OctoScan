@@ -1,0 +1,16 @@
+rules:
+  - id: android-trust-all-hostname-verifier
+    languages: [java]
+    severity: ERROR
+    message: HostnameVerifier that always returns true bypasses TLS hostname
+      verification, enabling man-in-the-middle. Validate the peer hostname
+      against the pinned certificate.
+    pattern: |
+      new HostnameVerifier() {
+        public boolean verify(...) {
+          return true;
+        }
+      }
+    metadata:
+      cwe: [CWE-295]
+      category: tls

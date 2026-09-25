@@ -22,3 +22,4 @@ frontend/*.tsbuildinfo
 *.tsbuildinfo
 .pytest_cache/
 *.db
+*.egg-info/

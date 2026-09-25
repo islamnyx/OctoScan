@@ -1,0 +1,15 @@
+rules:
+  - id: android-weak-message-digest
+    languages: [java]
+    severity: ERROR
+    message: Weak message digest "$ALGO" used. MD5 and SHA-1 are cryptographically
+      broken for security purposes (collisions are practical). Use SHA-256 or higher
+      via a provider such as a KeyedHash / MAC where keyed integrity is required.
+    patterns:
+      - pattern: MessageDigest.getInstance("$ALGO")
+      - metavariable-regex:
+          metavariable: $ALGO
+          regex: (?i)(md5|sha-?1)
+    metadata:
+      cwe: [CWE-327]
+      category: cryptography
