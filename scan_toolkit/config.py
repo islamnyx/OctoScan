@@ -8,7 +8,7 @@ would silently collide or cross-populate.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,8 +25,24 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT / "data"
     db_url: str = ""  # auto-derived from data_dir when empty (see validator below)
 
-    # ---- LLM (placeholder — unused until Phase 4) ----
+    # ---- LLM provider ----
+    # "anthropic" (Anthropic Messages API) or "openai_compatible" (any
+    # OpenAI-style /chat/completions endpoint — OpenCode Zen for Muse Spark,
+    # Meta Model API, OpenRouter, ...).
+    llm_provider: str = "anthropic"
     anthropic_api_key: str = ""
+    # Key/model/endpoint for the openai_compatible provider.  Empty model
+    # means the provider default (Muse Spark 1.3 contributor-free on Zen).
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = ""
+    # Zen key under its native name — lets analysts reuse an exported
+    # OPENCODE_API_KEY without duplicating it into SCAN_TOOLKIT_* vars.
+    zen_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SCAN_TOOLKIT_ZEN_API_KEY", "OPENCODE_API_KEY"),
+    )
 
     # ---- resource limits (Phase 6) ----
     max_concurrent_dynamic_jobs: int = 2
@@ -67,6 +83,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _derive_db_url(self) -> "Settings":
+        if not self.data_dir.is_absolute():
+            self.data_dir = (ROOT / self.data_dir).resolve()
         if not self.db_url:
             db_path = self.data_dir / "toolkit.db"
             self.db_url = f"sqlite+pysqlite:///{db_path.as_posix()}"

@@ -34,6 +34,6 @@ class JadxRunner(ToolRunner):
         # jadx writes into <out_dir>/sources; keep raw_path at useful root
         return IRToolOutput(
             tool=self.name,
-            version=self._version_from_output(proc.stdout),
+            version=self._probe_version(binary),
             raw_path=str((out_dir / "sources").resolve()),
         )

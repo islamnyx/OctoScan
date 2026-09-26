@@ -122,10 +122,13 @@ def test_run_static_requires_binary(db_session, env, tmp_path):
         run_static(db_session, eng)
 
 
-def test_semgrep_runner_degrades_cleanly(tmp_path):
+def test_semgrep_runner_degrades_cleanly(tmp_path, monkeypatch):
     """With semgrep absent, the real runner reports an error, never raises."""
+    from scan_toolkit.config import get_settings
     from scan_toolkit.tools import SemgrepRunner
 
+    # Hermetic: force-absent binary (the test env may HAVE semgrep installed).
+    monkeypatch.setattr(get_settings(), "semgrep_bin", "/nonexistent/semgrep")
     runner = SemgrepRunner(tmp_path)
     out = runner.run(target_dir=tmp_path)
     assert not runner.available()

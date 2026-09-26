@@ -68,6 +68,20 @@ class ToolRunner(ABC):
                 return line.split()[0]
         return None
 
+    def _probe_version(self, binary: str, *args: str) -> str | None:
+        """Run ``<bin> --version`` and parse the output.
+
+        Operational stdout (decode/decompile logs) is NOT a version source —
+        parsing it produced junk like "I:"/"INFO" (pilot finding). Probing
+        is best-effort: any failure returns None, never raises.
+        """
+        try:
+            proc = self._run_cmd([binary, "--version", *args], timeout=30)
+        except Exception:  # noqa: BLE001 — version is informational only
+            return None
+        out = (proc.stdout or proc.stderr or "").strip()
+        return self._version_from_output(out)
+
     @abstractmethod
     def available(self) -> bool:
         """True if the tool binary/service is usable right now."""

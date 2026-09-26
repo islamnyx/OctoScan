@@ -27,3 +27,18 @@ def db_session(db_engine) -> Session:
     yield session
     session.rollback()
     session.close()
+
+
+@pytest.fixture(autouse=True)
+def clean_test_env(monkeypatch):
+    """Prevent developer .env from polluting unit tests."""
+    monkeypatch.setenv("SCAN_TOOLKIT_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("SCAN_TOOLKIT_ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("SCAN_TOOLKIT_LLM_API_KEY", "")
+    monkeypatch.setenv("SCAN_TOOLKIT_LLM_MODEL", "")
+    monkeypatch.delenv("SCAN_TOOLKIT_ZEN_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    from scan_toolkit.config import get_settings
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

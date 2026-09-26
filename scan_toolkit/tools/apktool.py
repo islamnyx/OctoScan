@@ -28,6 +28,6 @@ class ApktoolRunner(ToolRunner):
             )
         return IRToolOutput(
             tool=self.name,
-            version=self._version_from_output(proc.stdout),
+            version=self._probe_version(binary),
             raw_path=str(out_dir.resolve()),
         )

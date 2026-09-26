@@ -160,7 +160,7 @@ class TestLLMClient:
             json.dumps(VALID_OUTPUT)
         )
 
-        client = LLMClient(api_key="test-key")
+        client = LLMClient(provider="anthropic", api_key="test-key")
         result = client.call(system="sys", user_message="user")
         assert result == VALID_OUTPUT
 
@@ -172,7 +172,7 @@ class TestLLMClient:
             '```json\n{"findings": []}\n```'
         )
 
-        client = LLMClient(api_key="test-key")
+        client = LLMClient(provider="anthropic", api_key="test-key")
         result = client.call(system="sys", user_message="user")
         assert result == {"findings": []}
 
@@ -184,7 +184,7 @@ class TestLLMClient:
             "this is not json"
         )
 
-        client = LLMClient(api_key="test-key")
+        client = LLMClient(provider="anthropic", api_key="test-key")
         with pytest.raises(LLMError, match="invalid JSON"):
             client.call(system="sys", user_message="user")
 
@@ -203,7 +203,7 @@ class TestLLMClient:
             self._make_mock_response(json.dumps(good_output)),
         ]
 
-        client = LLMClient(api_key="test-key")
+        client = LLMClient(provider="anthropic", api_key="test-key")
         result = client.call(
             system="sys",
             user_message="user",
@@ -225,7 +225,7 @@ class TestLLMClient:
             self._make_mock_response(json.dumps(bad_output)),
         ]
 
-        client = LLMClient(api_key="test-key")
+        client = LLMClient(provider="anthropic", api_key="test-key")
         with pytest.raises(LLMError, match="failed validation after retry"):
             client.call(
                 system="sys",
@@ -238,7 +238,7 @@ class TestLLMClient:
         from scan_toolkit.config import get_settings
         get_settings.cache_clear()
         with pytest.raises(RuntimeError, match="SCAN_TOOLKIT_ANTHROPIC_API_KEY"):
-            LLMClient()
+            LLMClient(provider="anthropic")
         get_settings.cache_clear()
 
 
