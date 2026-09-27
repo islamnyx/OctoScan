@@ -23,3 +23,9 @@
 - State: works — 20 pytest pass; sandbox E2E with fake reasoning model: HTTP 200 in 11 s, 8 files / 3 prompts, JSON repaired; private key in lib/insecurity.ts masked; all quoted secrets on gitleaks-flagged non-test lines masked
 - Next: real NVIDIA model test (still no key configured), then pre-filter -> triage
 - Decisions/gotchas: Juice Shop has no lockfile -> osv-scanner exits 128 and the app mislabels it "osv-scanner not installed" (source_osv.py _unavailable title; not fixed, not AI). Review samples 8 of 1298 files (byte budget) until real-model nomination runs
+
+## 13:25 - Verified friend's ZAP fix (origin/web_scanners a9b6e87)
+- Done: merged origin/web_scanners into LOCAL main (fast-forward, not pushed); ran 2 back-to-back ZAP-only web scans of Juice Shop via POST /api/scans
+- State: works — run 1: 16/20 targets, 495 s, SQL Injection found (1 high, 4 med, 2 low, 1 info after dedupe; 148 raw), 0 orphan scans, daemon alive; run 2: identical, 480 s. Before the fix: 1/20, no SQLi
+- Next (friend, owns zap_scanner.py): (1) restore bug: `int(...) or None` drops ZAP's default 0 -> daemon left at MaxScanDurationInMins=1 (confirmed); (2) budget = min(1200, SCAN_TIMEOUT_SECONDS/2) = 450 s, but 20 x 60 s min cap = 1200 s -> max ~16/20; (3) junk ascan targets (/juice-shop/node_modules/..., assets/public/assets/public/...) waste slots
+- Decisions: web scan never demoed live (AGENTS.md); SQLi detection is enough for the stretch "web + code correlation"
