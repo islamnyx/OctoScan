@@ -47,3 +47,9 @@
 - State: works — 67 pytest pass; real NodeGoat run with NO AI: 56 s, 215 -> 30 (20 code + 10 deps), honest fallbacks, verdict not_ready
 - Next: Brev provider must be saved in the dashboard on this machine (chain is empty), then live run; merge B when pushed
 - Decisions: prefilter split code/deps (A's top-30 alone = all OSV on NodeGoat -> nothing to fix); verdict never "ready" while critical/high findings are only "review"; fix loop stops at first "AI unavailable"
+
+## 14:50 - Friend B's part taken over: ai_story + demo run (hack/islam-agent)
+- Done: app/ai_story.py (one call_json StoryReply; any critical/high real -> not_ready even if the model says ready; AIError -> rule-based + "AI unavailable: ..."), tests/test_ai_story.py; app/static/fake-agent-run.json recorded from a real agent run on the cached NodeGoat scan with a scripted model (real re-scans: eval 3->0, $where 1st patch breaks file -> retry -> 1->0, zapApiKey 2->0); agent.html/agent.js being built
+- State: works — 74 pytest pass
+- Next: agent page, then live Brev run (provider chain still empty on this machine)
+- Decisions: B never pushed, Islam owns B's files now; bug fixed: DATA_DIR relative -> semgrep --output doubled the path (fix dirs now absolute); diffs returned by the API are redacted too
