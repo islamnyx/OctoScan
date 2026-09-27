@@ -128,9 +128,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         # HSTS only makes sense over TLS; harmless on http, keep for preload readiness.
         resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        # Dashboard is same-origin vanilla JS — tight CSP, no inline relaxation beyond what we ship.
-        # index.html uses inline <style>/<script>; allow 'unsafe-inline' for style only,
-        # scripts are inline in the single file so we must allow them deliberately.
+        # Dashboard pages: vanilla result/status pages use inline <style>/<script>;
+        # the React console (/) loads its bundle from same-origin /assets plus
+        # Google Fonts. Scripts stay same-origin (inline allowed for legacy pages).
         # API responses are JSON — CSP doesn't hurt.
         path = request.url.path
         is_page = (
@@ -148,7 +148,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         elif is_page:
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "img-src 'self' data:; "
                 "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
             )
         else:

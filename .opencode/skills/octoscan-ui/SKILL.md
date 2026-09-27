@@ -25,3 +25,10 @@ You are a principal frontend engineer building the OctoScan cybersecurity dashbo
 * **Cards:** 14px border radius, 1px solid border using the border color. No heavy drop shadows or backdrop-blur.
 * **Buttons:** Primary buttons are solid accent color with dark text (#1a0a02), font-semibold, rounded corners.
 * **Data Visualizations:** Use Recharts for the Severity Donut Chart and horizontal progress bars, styled entirely with the custom hex codes.
+
+## Source of truth (two dirs, one flow)
+* `frontend/` is the REAL source. `app/static/` is what FastAPI serves.
+* `app/static/index.html` + `app/static/assets/*` are BUILD OUTPUT of `frontend/` — never hand-edit them. Rebuild with `./build.sh` (from `frontend/`), which runs `npm run build` and copies `dist/` into `app/static/`.
+* Hand-written legacy pages the React router does not cover (`app/static/scan.html`, `status.html`) are edited in place and must reuse this exact palette/typography.
+* Backend serves `/static` (whole dir) plus `/assets` (mapped to `app/static/assets` in `app/main.py`, matching Vite's default `base: '/'`). Keep Vite `base` unchanged.
+* Logos: `app/static/logo.png` has a baked black background — always render it with `mix-blend-mode: screen` plus `drop-shadow(0 0 8px rgba(255,106,44,.55))` on dark surfaces so the tile disappears.
