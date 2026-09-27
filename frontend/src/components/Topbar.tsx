@@ -6,7 +6,7 @@ export function Topbar({ online, apiKey, onKey }: { online: boolean | null; apiK
     <header className="sticky top-0 z-20 border-b border-border-line bg-surface">
       <div className="mx-auto flex max-w-[1220px] items-center gap-3 px-6 py-3">
         <div className="mr-auto flex items-center gap-2.5">
-          <span className="grid h-8 w-8 place-items-center rounded-md bg-accent font-heading font-bold text-[#1a0a02]">O</span>
+          <img src="/static/logo.png" alt="OctoScan logo" className="h-8 w-8 rounded-md object-contain" />
           <span className="font-heading text-[15px] font-bold text-ink">OctoScan</span>
           <span className="rounded border border-border-line px-2 py-0.5 font-mono text-[10.5px] font-semibold text-ink-dim">Console</span>
         </div>

@@ -37,8 +37,8 @@ export function KpiCards({ web, repo }: { web: WebJob[]; repo: RepoJob[] }) {
       {cards.map((k) => (
         <div key={k.label} className={`rounded-panel border bg-surface-panel p-3 ${k.hot ? 'border-accent/50' : 'border-border-line'}`}>
           <div className="mb-1 font-mono text-xs text-ink-dim">{k.label}</div>
-          <div className="font-heading text-2xl font-bold tracking-tight text-ink">{k.value}</div>
-          <div className="m-0 font-mono text-xs text-ink-dim">{k.sub}</div>
+          <div className="font-heading text-[28px] font-bold leading-none tracking-tight text-ink">{k.value}</div>
+          <div className="m-0 mt-1 font-mono text-xs text-ink-dim">{k.sub}</div>
         </div>
       ))}
     </div>
@@ -50,9 +50,9 @@ export function SeverityDonut({ web, repo }: { web: WebJob[]; repo: RepoJob[] })
   const data = Object.entries(c).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }));
   return (
     <div className="flex items-center gap-4">
-      <div className="h-[130px] w-[130px] shrink-0">
+      <div className="relative h-[130px] w-[130px] shrink-0">
         {total === 0 ? (
-          <div className="grid h-full w-full place-items-center rounded-full border-[12px] border-border-line font-mono text-xs text-ink-dim">empty</div>
+          <div className="grid h-full w-full place-items-center rounded-full border-[12px] border-border-line" />
         ) : (
           <ResponsiveContainer>
             <PieChart>
@@ -63,6 +63,12 @@ export function SeverityDonut({ web, repo }: { web: WebJob[]; repo: RepoJob[] })
             </PieChart>
           </ResponsiveContainer>
         )}
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="text-center">
+            <div className="font-heading text-[22px] font-bold leading-none text-ink">{total}</div>
+            <div className="mt-0.5 font-mono text-[10px] text-ink-dim">findings</div>
+          </div>
+        </div>
       </div>
       <div className="grid gap-1 font-mono text-xs text-ink-dim">
         {Object.entries(c).map(([k, v]) => <span key={k}>▸ {k} <b className="text-ink">{v}</b></span>)}
@@ -97,15 +103,40 @@ export function CoveragePanel({ web, repo }: { web: WebJob[]; repo: RepoJob[] })
   );
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  completed: '#4ADE80',
+  failed: '#ff6a2c',
+  running: '#ff6a2c',
+  queued: '#9a9ca1',
+  paused: '#9a9ca1',
+};
+
 export function LiveFeed({ web, repo }: { web: WebJob[]; repo: RepoJob[] }) {
-  const latest = [...web, ...repo].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0] as (WebJob & { repo_url?: string }) | undefined;
-  if (!latest) return <div>No scans yet. Start one below and activity will show here.</div>;
-  const lbl = (latest as WebJob).target_url || (latest as unknown as RepoJob).repo_url || latest.id;
+  const jobs = [...web, ...repo]
+    .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
+    .slice(0, 8);
+  if (!jobs.length) return <div>No scans yet. Start one below and activity will show here.</div>;
   return (
-    <>
-      <div><span className="text-success">{latest.status.toUpperCase()}</span> — <span className="font-mono text-xs">{String(lbl).slice(0, 60)}</span></div>
-      <div>Scanners: <span className="font-mono text-xs">{(latest.scanners_run || []).join(', ') || 'queued'}</span> · Findings: {(latest.findings || []).length}</div>
-      <div className="text-accent">Gate: <span className="font-mono text-xs">{(latest as WebJob).gate || 'unknown'}</span> · <span className="font-mono text-xs">ID {latest.id.slice(0, 8)}</span></div>
-    </>
+    <div className="grid gap-2">
+      {jobs.map((j) => {
+        const lbl = (j as WebJob).target_url || (j as unknown as RepoJob).repo_url || j.id;
+        const col = STATUS_COLOR[j.status] ?? '#9a9ca1';
+        const meta = [
+          (j.scanners_run || []).join(', ') || 'queued',
+          `${(j.findings || []).length} findings`,
+          (j as WebJob).gate ?? (j as unknown as RepoJob).branch ?? null,
+          j.id.slice(0, 8),
+        ].filter(Boolean).join(' · ');
+        return (
+          <div key={j.id} className="border-b border-border-line pb-2 last:border-0 last:pb-0">
+            <div>
+              <span className="font-semibold" style={{ color: col }}>{j.status.toUpperCase()}</span>
+              <span className="text-ink-dim"> — </span>{String(lbl).slice(0, 56)}
+            </div>
+            <div className="text-ink-dim">{meta}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }

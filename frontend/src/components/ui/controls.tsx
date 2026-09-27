@@ -24,8 +24,8 @@ export function Badge({ tone = 'muted', className, ...p }: React.HTMLAttributes<
     ok: 'bg-success/10 text-success',
     err: 'bg-[#ff7d6b]/10 text-[#ff7d6b]',
     warn: 'bg-accent/10 text-accent',
-    info: 'bg-white/5 text-ink-dim',
-    muted: 'bg-white/5 text-ink-dim',
+    info: 'border border-border-line text-ink-dim',
+    muted: 'border border-border-line text-ink-dim',
     accent: 'bg-accent/10 text-accent',
   };
   return <span {...p} className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs font-semibold', tones[tone], className)} />;

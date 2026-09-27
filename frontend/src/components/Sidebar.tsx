@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bug, ChevronLeft, FlaskConical, History, LayoutDashboard, Radar, Terminal } from 'lucide-react';
+import { ChevronLeft, FlaskConical, History, LayoutDashboard, Radar, Terminal } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export type NavId = 'overview' | 'launch' | 'history' | 'intel';
@@ -18,7 +18,7 @@ export function Sidebar({ collapsed, onToggle, onPalette, running, total, active
   return (
     <aside className={cn('fixed left-0 top-0 bottom-0 z-40 flex flex-col gap-0.5 border-r border-border-line bg-surface px-3 py-4 transition-all', collapsed ? 'w-[72px]' : 'w-[248px]', 'max-lg:-translate-x-full')}>
       <div className="flex items-center gap-2.5 border-b border-border-line px-2 pb-3.5">
-        <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md bg-accent text-[#1a0a02]"><Bug size={16} /></span>
+        <img src="/static/logo.png" alt="OctoScan logo" className="h-[30px] w-[30px] shrink-0 rounded-md object-contain" />
         {!collapsed && <div><b className="block font-heading text-sm leading-tight text-ink">OctoScan</b><span className="font-mono text-[10px] text-ink-dim">console</span></div>}
       </div>
       {!collapsed && <div className="px-2.5 pb-1 pt-3 font-mono text-[10px] text-ink-dim">Navigate</div>}

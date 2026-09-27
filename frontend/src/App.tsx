@@ -52,7 +52,7 @@ export default function App() {
           <KpiCards web={web} repo={repo} />
           <div className="mx-3.5 mb-3.5 rounded-panel border border-border-line bg-background font-mono text-xs">
             <div className="border-b border-border-line px-3 py-2 text-ink-dim">Latest activity</div>
-            <div className="grid gap-1 px-3 py-2.5 text-ink"><LiveFeed web={web} repo={repo} /></div>
+            <div className="max-h-[170px] overflow-y-auto px-3 py-2.5 text-ink"><LiveFeed web={web} repo={repo} /></div>
           </div>
         </div>
       </section>

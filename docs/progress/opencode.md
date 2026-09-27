@@ -5,3 +5,21 @@
 - State: partial — `./start.sh` booting in background; test scans pending
 - Next: POST `["zap"]` scan on http://localhost:3000 ×2 back-to-back; verify ≥18/20, no orphan RUNNING scans; commit
 - Decisions: kept API-key requirement, open-daemon probe, apikey redaction, SSRF guard untouched; additive coverage key only
+
+## 14:37 - octoscan-ui skill created
+- Done: new file `.opencode/skills/octoscan-ui/SKILL.md` (brand tokens, typography stack, component rules for the React dashboard)
+- State: works (file written verbatim as requested; no existing files touched)
+- Next: none — skill available for UI work
+- Decisions: new file only, no ownership conflicts per docs/TEAM.md
+
+## 14:45 - octoscan-ui corrections (skill-driven refactor)
+- Done: `frontend/src/components/Dashboard.tsx` (KPI metrics 28px Space Grotesk, donut center total overlay, LiveFeed rewritten as 8-item scrollable console with #4ADE80/#ff6a2c status colors), `App.tsx` (console body max-h-170px scroll), `ui/controls.tsx` (muted/info badges border-only), `History.tsx` (accent row hover)
+- State: works — `tsc -b && vite build` clean, dev server 200 on :5173
+- Next: visual check in browser; replace Visuals placeholders with real Recharts radar/sunburst
+- Decisions: FAILED maps to #ff6a2c per request; white fills removed entirely (borders were already exact)
+
+## 14:55 - logo integrated + static sync
+- Done: `Sidebar.tsx`/`Topbar.tsx` brand marks now render `/static/logo.png` (Bug/"O" placeholders removed); rebuilt and re-synced `dist/` -> `app/static/` (index.html + hashed assets, stale hashes pruned)
+- State: works — build clean, vite 200, logo 200 via proxy; note `/assets/*` still 404s under FastAPI (needs base fix, user deferred)
+- Next: visual check in browser
+- Decisions: logo (orange octo mark, transparent bg) sits directly on dark surfaces, no accent box

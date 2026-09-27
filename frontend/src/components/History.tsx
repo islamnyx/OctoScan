@@ -5,7 +5,7 @@ import { Badge, cvssTone, statusTone } from './ui/controls';
 
 function JobRow({ label, sub, status, ai, cvss, href }: { label: string; sub: string; status: string; ai?: boolean; cvss?: number | null; href: string }) {
   return (
-    <tr className="cursor-pointer hover:bg-white/[0.03]" onClick={() => { location.href = href; }}>
+    <tr className="cursor-pointer hover:bg-[rgba(255,106,44,0.05)]" onClick={() => { location.href = href; }}>
       <td className="border-b border-border-line px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="break-all font-semibold text-ink">{label}</span>
