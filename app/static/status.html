@@ -12,22 +12,24 @@
     @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/jetbrainsmono-600.woff2") format("woff2"); }
     :root {
       color-scheme: dark;
-      --bg: #1A1A1A; --surface: #242424; --surface-2: #2C2C2C;
-      --border: #3A3A3A; --border-strong: #4C4C4C;
-      --text: #FFFFFF; --muted: #6A748B; --faint: #9AA3B5;
+      --bg: #060B16; --surface: rgba(13,22,41,.85); --surface-2: rgba(20,32,58,.9);
+      --border: rgba(120,160,255,.14); --border-strong: rgba(120,160,255,.28);
+      --text: #EEF3FF; --muted: #8B98B8; --faint: #5D6B8C;
       --accent: #FF6B00; --accent-dark: #E05F00; --accent-soft: rgba(255,107,0,.14);
+      --cyber: #38E1FF;
       --ok: #4ADE80; --ok-bg: rgba(74,222,128,.12); --err: #FF8F84; --err-bg: rgba(255,143,132,.12);
-      --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-      --sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --radius: 10px;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: "Space Grotesk", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+      --radius: 16px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
-    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
+    body { margin: 0; font-family: var(--sans); color: var(--text); font-size: 14px; line-height: 1.5;
+      background: radial-gradient(900px 480px at 15% -5%, rgba(255,107,0,.16), transparent 60%), radial-gradient(900px 520px at 90% 0%, rgba(56,225,255,.12), transparent 60%), #060B16; min-height: 100vh; }
+    .topbar { backdrop-filter: blur(14px); background: rgba(6,11,22,.78); border-bottom: 1px solid var(--border); }
     .topbar-inner { max-width: 760px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; }
     .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; color: inherit; }
     .brand-name { font-size: 15px; font-weight: 700; }
-    .backlink { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+    .backlink { font-size: 11.5px; font-weight: 700; font-family: var(--mono); color: var(--cyber); text-decoration: none; border: 1px solid var(--border-strong); padding: 6px 12px; border-radius: 999px; background: rgba(56,225,255,.08); }
     .backlink:hover { text-decoration: underline; }
     main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
@@ -67,15 +69,42 @@
     .ev.done { color: var(--ok); }
     .ev.error { color: var(--err); }
     .ev.current { color: #FFB37A; font-weight: 600; }
+    :root { --side-w: 232px; }
+    #sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--side-w); z-index: 40; background: #0A1224; border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 2px; }
+    #sidebar .side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; font-weight: 700; }
+    .side-cap { font-family: var(--mono); font-size: 10px; color: var(--faint); padding: 12px 10px 5px; }
+    .side-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid transparent; background: none; width: 100%; text-align: left; font-family: inherit; cursor: pointer; }
+    .side-link:hover { color: var(--text); background: rgba(255,255,255,.03); }
+    .side-link .ico { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 22px; flex: 0 0 22px; text-align: center; }
+    .side-foot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; font-family: var(--mono); font-size: 10px; color: var(--faint); padding-left: 10px; }
+    body.has-side .topbar-inner, body.has-side main { margin-left: var(--side-w); }
+    #burger { display: none; background: none; border: 1px solid var(--border-strong); color: var(--text); border-radius: 8px; padding: 5px 9px; cursor: pointer; }
+    #scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 35; border: 0; }
+    @media (max-width: 1023px) { #sidebar { transform: translateX(-100%); transition: transform .25s ease; } body.side-open #sidebar { transform: none; } body.side-open #scrim { display: block; } body.has-side .topbar-inner, body.has-side main { margin-left: 0; } #burger { display: block; } }
   </style>
 </head>
-<body>
+<body class="has-side">
+  <button id="scrim" aria-label="close menu"></button>
+  <aside id="sidebar" aria-label="Menu">
+    <div class="side-brand"><img src="/static/logo.png" alt="" width="26" height="26" style="border-radius:6px" onerror="this.remove()" /> OctoScan</div>
+    <div class="side-cap">Navigate</div>
+    <a class="side-link" href="/"><span class="ico">←</span>All scans</a>
+    <button class="side-link" id="side-results"><span class="ico">01</span>Open results</button>
+    <button class="side-link" id="side-stay"><span class="ico">02</span>Cancel redirect</button>
+    <div class="side-cap">Controls</div>
+    <button class="side-link" id="side-pause"><span class="ico">03</span>Pause scan</button>
+    <button class="side-link" id="side-resume"><span class="ico">04</span>Resume scan</button>
+    <button class="side-link" id="side-finish"><span class="ico">05</span>Finish now</button>
+    <div class="side-foot" id="side-stat">status: …</div>
+  </aside>
   <header class="topbar">
     <div class="topbar-inner">
+      <button id="burger" aria-label="open menu">☰</button>
       <a class="brand" href="/">
         <img src="/static/logo.png" alt="OctoScan logo" width="28" height="28" style="border-radius:6px" />
         <span class="brand-name">OctoScan</span>
       </a>
+      <input id="api-key" type="password" placeholder="API key" autocomplete="off" aria-label="API key" style="font:inherit;font-size:12.5px;padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-2);color:var(--text);width:160px;" />
       <a class="backlink" href="/">All scans</a>
     </div>
   </header>
@@ -98,6 +127,7 @@
         <button class="btn" id="btn-resume" type="button" style="display:none;">Resume</button>
         <button class="btn danger" id="btn-finish" type="button" style="display:none;">Finish now</button>
         <a class="btn" id="btn-results" href="#" style="display:none; text-decoration:none;">Open results</a>
+        <button class="btn secondary" id="btn-stay" type="button" style="display:none;">Stay here (cancel redirect)</button>
       </div>
       <p class="note" id="note"></p>
     </div>
@@ -108,9 +138,16 @@
     const scanId = parts[1] || "";
     const apiBase = (isRepo ? "/api/repo-scans/" : "/api/scans/") + encodeURIComponent(scanId);
     const resultUrl = (isRepo ? "/repos/" : "/scans/") + encodeURIComponent(scanId);
-    const key = (localStorage.getItem("apiKey") || "").trim();
-    const headers = { "Content-Type": "application/json" };
-    if (key) headers["X-API-Key"] = key;
+    const keyInput = document.getElementById("api-key");
+    keyInput.value = localStorage.getItem("apiKey") || "";
+    keyInput.addEventListener("change", () => localStorage.setItem("apiKey", keyInput.value.trim()));
+    const headers = {};
+    function hdrs() {
+      const h = Object.assign({ "Content-Type": "application/json" }, headers);
+      const k = (keyInput.value || "").trim();
+      if (k) h["X-API-Key"] = k;
+      return h;
+    }
 
     const kindEl = document.getElementById("kind");
     const targetEl = document.getElementById("target");
@@ -125,6 +162,9 @@
     const btnResume = document.getElementById("btn-resume");
     const btnFinish = document.getElementById("btn-finish");
     const btnResults = document.getElementById("btn-results");
+    const btnStay = document.getElementById("btn-stay");
+    let stayHere = false;
+    btnStay.addEventListener("click", () => { stayHere = true; btnStay.style.display = "none"; noteEl.textContent = "Auto-redirect cancelled — stay here as long as needed."; });
     btnResults.href = resultUrl;
 
     const t0 = Date.now();
@@ -141,14 +181,16 @@
       btnResume.style.display = state === "paused" ? "" : "none";
       btnFinish.style.display = (running || state === "paused") ? "" : "none";
       btnResults.style.display = (state === "completed" || state === "failed") ? "" : "none";
+      if (btnStay) btnStay.style.display = (state === "completed" || state === "failed") ? "" : "none";
     }
     async function control(action, btn) {
       btn.disabled = true;
       try {
-        const res = await fetch(apiBase + "/" + action, { method: "POST", headers });
+        const res = await fetch(apiBase + "/" + action, { method: "POST", headers: hdrs() });
         if (!res.ok) {
-          errBox.innerHTML = `<div class="errorline">${esc(action)} failed: ${esc((await res.text()).slice(0, 200))}</div>`;
+          errBox.innerHTML = `<div class="errorline">${esc(action)} failed (${res.status}): ${esc((await res.text()).slice(0, 200))}</div>`;
         } else {
+          errBox.innerHTML = "";
           await tick();
         }
       } catch (e) {
@@ -169,7 +211,7 @@
 
     async function tickActivity() {
       try {
-        const res = await fetch(apiBase + "/activity", { headers });
+        const res = await fetch(apiBase + "/activity", { headers: hdrs() });
         if (!res.ok) { activityEl.style.display = "none"; return; }
         const data = await res.json();
         const events = data.events || [];
@@ -197,7 +239,7 @@
     async function tick() {
       let res;
       try {
-        res = await fetch(apiBase, { headers });
+        res = await fetch(apiBase, { headers: hdrs() });
       } catch (e) {
         kindEl.textContent = "Connection error";
         targetEl.textContent = "Could not reach the API.";
@@ -208,7 +250,7 @@
         kindEl.textContent = "Locked";
         targetEl.textContent = "This server requires an API key.";
         idEl.textContent = "";
-        noteEl.innerHTML = 'Set the key on the <a href="/">dashboard</a> once — this page will remember it.';
+        noteEl.innerHTML = 'Enter the key above (saved to this browser) — then reload.';
         showButtons("locked");
         clearInterval(poll);
         return;
@@ -250,14 +292,30 @@
         clearInterval(clock);
         clearInterval(actPoll);
         tickActivity();
-        noteEl.textContent = "Finished — opening the result page…";
-        setTimeout(() => { location.href = resultUrl; }, 1600);
+        noteEl.textContent = "Finished — opening the result page in 6s (or press Stay here)…";
+        showButtons(job.status);
+        setTimeout(() => { if (!stayHere) location.href = resultUrl; }, 6000);
+        return;
       }
     }
     const poll = setInterval(tick, 2500);
     const actPoll = setInterval(tickActivity, 2500);
     tick();
     tickActivity();
+  </script>
+  <script>
+    document.getElementById("burger").addEventListener("click", () => document.body.classList.toggle("side-open"));
+    document.getElementById("scrim").addEventListener("click", () => document.body.classList.remove("side-open"));
+    const click = (id) => { const b = document.getElementById(id); if (b && b.style.display !== "none") b.click(); };
+    document.getElementById("side-pause").addEventListener("click", () => click("btn-pause"));
+    document.getElementById("side-resume").addEventListener("click", () => click("btn-resume"));
+    document.getElementById("side-finish").addEventListener("click", () => click("btn-finish"));
+    document.getElementById("side-stay").addEventListener("click", () => click("btn-stay"));
+    document.getElementById("side-results").addEventListener("click", () => click("btn-results"));
+    setInterval(() => {
+      const s = document.getElementById("state"), e = document.getElementById("elapsed"), ss = document.getElementById("side-stat");
+      if (s && ss) ss.textContent = "status: " + s.textContent + (e ? " · " + e.textContent : "");
+    }, 1000);
   </script>
 </body>
 </html>

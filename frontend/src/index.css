@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+body {
+  background: #07080a;
+  color: #f3efe9;
+  font-family: Inter, system-ui, sans-serif;
+}
+::selection { background: rgba(255, 106, 44, 0.35); }

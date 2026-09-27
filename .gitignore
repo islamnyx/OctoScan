@@ -12,3 +12,7 @@ resources/
 .claude/
 CLAUDE.md
 logs/
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+*.tsbuildinfo
