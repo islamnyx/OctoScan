@@ -177,6 +177,7 @@ def run_semgrep_rule(check: str, fix_dir: Path) -> dict:
     """Re-run ONE semgrep rule on fix_dir/before + fix_dir/after.
     Returns {before, after, broken, error}."""
     config, rule = _semgrep_config(check)
+    fix_dir = fix_dir.resolve()  # cwd=fix_dir below: relative paths would double up
     out = fix_dir / "semgrep.json"
     cmd = [settings.semgrep_bin, "--config", config, "--json", "--quiet", "--metrics=off",
            "--output", str(out), "before", "after"]
@@ -219,6 +220,7 @@ def _gitleaks_rules(f: Finding) -> set[str]:
 
 
 def run_gitleaks_rules(rules: set[str], fix_dir: Path) -> dict:
+    fix_dir = fix_dir.resolve()
     out = fix_dir / "gitleaks.json"
     cmd = [settings.gitleaks_bin, "detect", "--no-git", "--source", str(fix_dir),
            "--report-format", "json", "--report-path", str(out)]
@@ -326,7 +328,7 @@ def fix_finding(f: Finding, workdir: Path, run_dir: Path, *, hint: str = "", att
         patched = apply_patch(lines, reply, lo, hi)
     except PatchError as exc:
         return base.model_copy(update={"explanation": reply.explanation, "note": f"patch rejected: {exc}"})
-    fix_dir = run_dir / f"{f.id}-{attempt}"
+    fix_dir = (run_dir / f"{f.id}-{attempt}").resolve()
     shutil.rmtree(fix_dir, ignore_errors=True)
     (fix_dir / "before" / rel).parent.mkdir(parents=True, exist_ok=True)
     (fix_dir / "after" / rel).parent.mkdir(parents=True, exist_ok=True)

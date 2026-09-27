@@ -223,3 +223,17 @@ def test_real_gitleaks_rule(tmp_path, model):
     # call_json redacts every message before sending: the secret never leaves.
     sent, _ = ai_core.redact(model["calls"][0]["messages"][-1]["content"])
     assert "v9dn0balpqas1pcc281tn5ood1" not in sent
+
+
+@pytest.mark.skipif(not shutil.which("semgrep"), reason="semgrep not installed")
+def test_real_semgrep_with_relative_run_dir(tmp_path, model, monkeypatch):
+    # DATA_DIR=data in .env makes run_dir relative; semgrep runs with cwd=fix_dir.
+    wd = tmp_path / "src"
+    (wd / "app").mkdir(parents=True)
+    (wd / "app/dao.js").write_text("function q(t) {\n    return { $where: `this.stocks > '${t}'` };\n}\n")
+    f = finding(rel="app/dao.js", line=2, check="semgrep-rules.nodegoat-nosql-where-interpolation", file="app/dao.js")
+    model["replies"] = [{"start_line": 2, "end_line": 2, "explanation": "operator query",
+                         "replacement": "    return { stocks: { $gt: parseInt(t, 10) } };"}]
+    monkeypatch.chdir(tmp_path)
+    fix = ai_fix.fix_finding(f, wd, tmp_path.relative_to(tmp_path) / "run")
+    assert fix.verified is True, fix.note
