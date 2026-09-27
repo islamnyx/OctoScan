@@ -53,3 +53,9 @@
 - State: works — 74 pytest pass
 - Next: agent page, then live Brev run (provider chain still empty on this machine)
 - Decisions: B never pushed, Islam owns B's files now; bug fixed: DATA_DIR relative -> semgrep --output doubled the path (fix dirs now absolute); diffs returned by the API are redacted too
+
+## 15:06 - Agent page done, branch pushed (hack/islam-agent, acting as Friend B too)
+- Done: app/static/agent.html + agent.js (live steps, findings with verdict/confidence/reason + filters, fixes with colored diff + Verified/Not fixed/Not verifiable badge, verdict + blockers + attack story, stats, ?demo=1 replay of fake-agent-run.json, ?run=<id> resume; DOM via textContent only); strict CSP for /agent in app/security.py (script-src 'self'); data/agent/ gitignored (file copies can hold secrets)
+- State: works — 74 pytest pass; headless Chromium on /agent?demo=1 with the real CSP: NOT READY, 3 verified + 3 not verifiable, no console errors; live API run through the page not yet done (no AI provider on this machine)
+- Next: save Brev provider in the dashboard -> live NodeGoat run through /agent; then merge hack/islam-agent into web_scanners; after 15:45 project-card + disclosure (B's docs, now ours)
+- Decisions: B's files are owned by Islam from now on (B never pushed); pushed own branch only, web_scanners untouched on origin
