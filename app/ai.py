@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import ROOT, settings
 from app.models import AIAnalysis, Finding
@@ -30,6 +31,9 @@ PROVIDER_PRESETS: dict[str, str] = {
     "groq": "https://api.groq.com/openai/v1",
     "ollama": "http://localhost:11434/v1",
     "lmstudio": "http://localhost:1234/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+    # Our vLLM on an NVIDIA Brev GPU: base URL is per instance (https://<host>/v1).
+    "brev": "",
     "custom": "",
 }
 
@@ -176,55 +180,40 @@ def masked(cfg: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def _endpoint(base_url: str) -> str:
-    base = (base_url or "").strip().rstrip("/")
-    if not base:
-        raise RuntimeError("AI base_url not configured")
-    if base.endswith("/chat/completions"):
-        return base
-    return base + "/chat/completions"
-
-
 def chat_complete(
     messages: list[dict[str, str]],
     *,
     cfg: dict[str, str] | None = None,
     max_tokens: int | None = None,
     temperature: float = 0.2,
+    fallback: bool = True,
+    purpose: str = "chat",
 ) -> str:
-    cfg = cfg or load_config()
-    url = _endpoint(cfg.get("base_url", ""))
-    model = (cfg.get("model") or "").strip()
-    if not model:
-        raise RuntimeError("AI model not configured")
-    headers = {"Content-Type": "application/json"}
-    if cfg.get("api_key"):
-        headers["Authorization"] = f"Bearer {cfg['api_key']}"
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens or settings.ai_max_tokens,
-    }
-    try:
-        r = httpx.post(url, json=payload, headers=headers, timeout=settings.ai_timeout_s)
-    except Exception as exc:
-        raise RuntimeError(f"AI provider unreachable: {exc}")
-    if r.status_code >= 400:
-        raise RuntimeError(f"AI provider error {r.status_code}: {r.text[:300]}")
-    try:
-        data = r.json()
-        return data["choices"][0]["message"]["content"] or ""
-    except Exception as exc:
-        raise RuntimeError(f"AI provider bad response: {exc}")
+    """Free-text completion via app.ai_core: secrets redacted, fallback to
+    the other saved providers, every call logged. Raises RuntimeError."""
+    from app import ai_core
+
+    text, _meta = ai_core.call_text(
+        messages,
+        cfg=cfg,
+        fallback=fallback,
+        max_tokens=max_tokens or settings.ai_max_tokens,
+        temperature=temperature,
+        purpose=purpose,
+    )
+    return text
 
 
 def test_connection(cfg: dict[str, str] | None = None) -> dict[str, Any]:
     cfg = cfg or load_config()
+    # No fallback: this tests THIS provider. 256 tokens so reasoning models
+    # have room to finish thinking before "ok".
     out = chat_complete(
         [{"role": "user", "content": "Reply with exactly: ok"}],
         cfg=cfg,
-        max_tokens=16,
+        max_tokens=256,
+        fallback=False,
+        purpose="test-connection",
     )
     return {"ok": True, "reply": out.strip()[:200]}
 
@@ -284,12 +273,35 @@ def list_models(cfg: dict[str, str] | None = None) -> dict[str, Any]:
     }
 
 
+def _is_low_signal(f: Finding) -> bool:
+    raw = f.raw or {}
+    return raw.get("scope") == "dev" or bool(raw.get("likely_test_fixture"))
+
+
+def _digest_pick(findings: list[Finding], limit: int = 40) -> list[Finding]:
+    """Balanced sample for the prompt: runtime findings before dev-only deps
+    and test fixtures, round-robin across scanners (each keeps its priority
+    order). On NodeGoat the plain top 40 was 40/40 OSV, so the model never
+    saw a single semgrep code finding."""
+    by_scanner: dict[str, list[Finding]] = {}
+    for f in sorted(findings, key=_is_low_signal):  # stable: keeps priority order
+        by_scanner.setdefault(f.scanner, []).append(f)
+    picked: list[Finding] = []
+    while len(picked) < limit and any(by_scanner.values()):
+        for queue in by_scanner.values():
+            if queue and len(picked) < limit:
+                picked.append(queue.pop(0))
+    return picked
+
+
 def _findings_digest(findings: list[Finding], limit: int = 40) -> str:
-    lines = []
-    for f in findings[:limit]:
-        lines.append(f"- [{f.severity.value}] {f.title} @ {f.location} :: {(f.description or '')[:220]}")
-    if len(findings) > limit:
-        lines.append(f"... and {len(findings) - limit} more")
+    picked = _digest_pick(findings, limit)
+    lines = [
+        f"- [{f.severity.value}] ({f.scanner}) {f.title} @ {f.location} :: {(f.description or '')[:220]}"
+        for f in picked
+    ]
+    if len(findings) > len(picked):
+        lines.append(f"... and {len(findings) - len(picked)} more")
     return "\n".join(lines)
 
 
@@ -315,55 +327,79 @@ def analyze_findings(
             model=model,
             summary=f"No findings for {target} — nothing to triage.",
         )
+    from app import ai_core
+
+    if not ai_core.provider_chain(cfg):
+        raise RuntimeError("AI base_url/model not configured")
     user = (
         f"Target: {target}\n\nFindings:\n{_findings_digest(findings)}\n\n"
         "Return JSON with keys: summary (2-4 sentences), "
         "prioritized_fixes (array of max 5 concrete steps), "
         "false_positive_notes (1-3 sentences)."
     )
-    # Retry 429s (review phase drains free-tier OTPM budgets right before
-    # this call; the provider's 'try again in Xs' is honored, up to 60s).
-    text = None
-    import re as _re
-    import time as _time
-
-    for attempt in (1, 2, 3):
-        try:
-            text = chat_complete(
-                [
-                    {"role": "system", "content": ANALYZE_SYSTEM},
-                    {"role": "user", "content": user},
-                ],
-                cfg=cfg,
-                # Free tiers (Groq OTPM 1000) reject bigger asks with
-                # guaranteed 429.
-                max_tokens=min(settings.ai_max_tokens, 900),
-            )
-            break
-        except RuntimeError as exc:
-            if "429" not in str(exc) or attempt == 3:
-                raise
-            m = _re.search(r"try again in ([\d.]+)s", str(exc))
-            _time.sleep(min(float(m.group(1)) + 1.0 if m else 15.0, 60.0))
-    summary, fixes, fp_notes = text.strip()[:4000], [], ""
     try:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            parsed = json.loads(text[start : end + 1])
-            summary = str(parsed.get("summary") or summary)[:4000]
-            raw_fixes = parsed.get("prioritized_fixes") or []
-            fixes = [str(x)[:400] for x in raw_fixes if str(x).strip()][:5]
-            fp_notes = str(parsed.get("false_positive_notes") or "")[:2000]
-    except Exception:
-        pass
+        reply, meta = ai_core.call_json(
+            [
+                {"role": "system", "content": ANALYZE_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            AnalyzeReply,
+            cfg=cfg,
+            # Free tiers (Groq OTPM 1000) reject bigger asks with a 429.
+            max_tokens=min(settings.ai_max_tokens, 900),
+            purpose="analyze",
+        )
+    except ai_core.AIError as exc:
+        return _fallback_analysis(target, findings, provider, model, exc)
+    return AIAnalysis(
+        provider=meta["provider"],
+        model=meta["model"],
+        summary=reply.summary[:4000],
+        prioritized_fixes=[x[:400] for x in reply.prioritized_fixes if x.strip()][:5],
+        false_positive_notes=reply.false_positive_notes[:2000],
+        raw={k: meta[k] for k in ("latency_ms", "tokens_in", "tokens_out", "fallback_used", "attempts")},
+    )
+
+
+class AnalyzeReply(BaseModel):
+    summary: str
+    prioritized_fixes: list[str] = Field(default_factory=list)
+    false_positive_notes: str = ""
+
+    @field_validator("prioritized_fixes", mode="before")
+    @classmethod
+    def _fixes_as_text(cls, v: Any) -> Any:
+        # Models often return [{"step": ..., "file": ...}]: keep the content.
+        if isinstance(v, list):
+            return [
+                " — ".join(str(x) for x in item.values()) if isinstance(item, dict) else str(item)
+                for item in v
+            ]
+        return v
+
+
+def _fallback_analysis(
+    target: str, findings: list[Finding], provider: str, model: str, exc: Exception
+) -> AIAnalysis:
+    """Non-AI result when every provider failed: counts + top fixes from the
+    scanners' own recommendations, clearly labelled as not AI."""
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f.severity.value] = counts.get(f.severity.value, 0) + 1
+    count_txt = ", ".join(f"{n} {sev}" for sev, n in counts.items())
+    top = _digest_pick(findings, 5)
     return AIAnalysis(
         provider=provider,
         model=model,
-        summary=summary,
-        prioritized_fixes=fixes,
-        false_positive_notes=fp_notes,
-        raw={"reply_chars": len(text)},
+        summary=(
+            f"AI unavailable ({str(exc)[:160]}). Rule-based summary for {target}: "
+            f"{len(findings)} findings ({count_txt})."
+        ),
+        prioritized_fixes=[
+            f"{f.title}: {(f.recommendation or 'review and remediate')[:250]}" for f in top
+        ],
+        false_positive_notes="Not assessed: no AI triage ran.",
+        raw={"fallback": "non-ai", "error": str(exc)[:300]},
     )
 
 
