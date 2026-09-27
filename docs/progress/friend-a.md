@@ -5,3 +5,9 @@
 - State: works — `.venv/bin/python -m pytest tests -q` 31 passed (20 existing + 11 new)
 - Next: codebase scans for NodeGoat + Juice Shop (binaries missing on this box, builtin fallback only), hand-label 20+10 in eval/labels.json, live eval with Brev/Ollama Qwen3 model, fill docs/results.md with real numbers
 - Decisions: contracts from docs/NEXT.md §2 exactly; model only via app.ai_core.call_json (purpose=triage, max_tokens=1500); prefilter keeps prioritize() order; code_window clamps edges, blocks traversal; eval groups by workdir, refuses to invent numbers when no provider is configured
+
+## 14:40 - Eval inputs ready, live run blocked on provider
+- Done: codebase scans recreated on this box (NodeGoat 43d3ad8721764e6e: 111 files/14 findings; Juice Shop 8a617195bea940e6: 1298 files/34 findings — builtin fallback, no semgrep/gitleaks/osv binaries here); `eval/labels.json` 22 hand-labels (12 NodeGoat 7r+5fp, 10 Juice 6r+4fp, per-finding rationale in TO_DO.md §2); `docs/results.md` pending skeleton with measured scan stats; `TO_DO.md` with provider + live-eval steps
+- State: partial — `.venv/bin/python -m pytest tests -q` green (31 passed); `eval/run_triage.py` refuses without a provider (by design, no invented numbers); `.env` AI_* left empty per user request
+- Next: when Brev host/tag or NVIDIA key is ready — set `.env`, curl-check `/v1/models`, run `eval/run_triage.py`, commit results, tell Islam
+- Decisions: labels include prefilter-dropped fixtures as FP (tests triage, not prefilter); Gruntfile exec + livereload document.write labelled FP (heuristic misfires); dev-config ZAP key labelled real (committed credential)
