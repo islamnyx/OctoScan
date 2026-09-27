@@ -2,9 +2,63 @@
 
 # OctoScan by OctoSec Labs
 
-Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies + AI review), get prioritized findings with fix advice on a dark, analyst-grade dashboard.
+Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies), then our **AI agent reasons over every finding: drops the false alarms, writes the fix, re-scans to prove it, and tells you the attack story in plain words**.
 
-## What it does
+<p>
+  <img src="Presentation/assets/Untitled-removebg-preview.png" height="40" alt="NVIDIA" />
+  <img src="Presentation/assets/3-removebg-preview.png" height="40" alt="NVIDIA Nemotron 3 Ultra" />
+</p>
+
+**Built for the GOMYCODE x NVIDIA hackathon — AI reasoning by NVIDIA Nemotron** (via the NVIDIA NIM API, with a self-hosted vLLM option so code never leaves your infrastructure).
+
+## Live demo (2 minutes, no setup)
+
+No API keys, no waiting: open the agent page with the recorded run and watch the full loop replay — triage verdicts with confidence, proposed diffs with verified badges, ready/not-ready verdict, attack story.
+
+- Dashboard: `http://127.0.0.1:8000` — Web / Codebase / AI-provider tabs
+- Agent page: `/agent?demo=1` — instant replay of a real recorded run (no backend needed)
+- Full run: `POST /api/agent-scan {"repo_url": "https://github.com/OWASP/NodeGoat"}` — our reference target: **215 findings** (18 critical / 104 high / 78 medium / 15 low, 87 dev-only)
+
+> Never demo a live web scan (up to 20 min) — the recorded web output and the NodeGoat codebase run are the jury path.
+
+## How the AI agent works
+
+Fixed backbone, AI decides inside each step — raw Python loop, no LangGraph/CrewAI:
+
+1. **Scan** — semgrep + gitleaks + OSV (codebase) or Nmap/ZAP/Nuclei/Nikto/testssl/headers (web)
+2. **Prefilter (no AI)** — drops dev-only deps, test fixtures and duplicates first, so 215 findings become ~30 sent to the model (5 per call, ~40 lines of code each)
+3. **Triage (Nemotron)** — every finding gets `real / false_positive / review` + confidence + reason; rules win over the model on highs, and the run is never `ready` with unconfirmed criticals
+4. **Fix + verify** — patch is written on a copy, the fired rule is re-run: `verified=true` only when a re-scan actually passes (OSV/ZAP findings honestly stay unverified)
+5. **Story** — findings chained into how an attacker would break in, plus a ready/not-ready ship verdict with blockers
+
+## Measured, not claimed
+
+| Signal | Result | Where |
+|---|---|---|
+| Reference scan (OWASP NodeGoat) | 215 findings: 18 crit / 104 high / 78 med / 15 low | demo data + replay |
+| Triage + eval harness | 31 pytest pass | `hack/friend-a-triage` |
+| Labelled eval set | 22 findings | `eval/`, `docs/results.md` |
+| ZAP repair (was 1/20 targets, orphan scans) | per-target isolation + budget caps, verified back-to-back on Juice Shop | `web_scanners` |
+| Model accountability | every call logs model, latency, tokens (never keys) | `app/ai_core.py` on `hack/islam-agent` |
+
+## Responsible AI
+
+- Secrets redacted before any code reaches a cloud model; small windows, never whole files
+- Fallback chain (second provider, then non-AI result) — the agent stops fixing instead of hallucinating when AI is down
+- Patches are suggestions a human applies; scans are read-only, consent-signed, SSRF-guarded
+- Fully local option: Ollama / LM Studio, zero data leaves the machine
+
+## Team progress (hackathon day)
+
+| Owner | Branch | Built |
+|---|---|---|
+| Islam | `hack/islam-agent` | Agent loop, fix+verify, attack story, agent page + API, NVIDIA/Brev presets, merges |
+| Friend A | `hack/friend-a-triage` | Prefilter, triage, eval harness + labelled set |
+| Friend B | (merged) | Attack story copy, demo run, agent page |
+| Friend #2 | `web_scanners` | ZAP stability fix, verified on Juice Shop |
+| Docs/video | `Presentation/` (on `main`) | Pitch page, live console screenshot, demo video |
+
+## What it does (base platform)
 
 **Web application scans** — pick any subset before running:
 - **Nmap** (ports/services), **OWASP ZAP** (web vulns, capped active scan), **testssl.sh** (TLS), **headers** (security headers + cookie flags), **Nikto** (known-path/CGI misconfigs), **Nuclei** (full CVE/misconfig template set, throttled)
@@ -41,8 +95,8 @@ Pre-launch security check for startups. Scan a **live web app** (DAST) or a **co
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/islamnyx/startup-mvp.git
-cd startup-mvp
+git clone https://github.com/islamnyx/OctoScan.git
+cd OctoScan
 
 # 2. Create virtualenv + install
 python3 -m venv .venv && source .venv/bin/activate
