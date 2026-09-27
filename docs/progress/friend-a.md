@@ -11,3 +11,9 @@
 - State: partial — `.venv/bin/python -m pytest tests -q` green (31 passed); `eval/run_triage.py` refuses without a provider (by design, no invented numbers); `.env` AI_* left empty per user request
 - Next: when Brev host/tag or NVIDIA key is ready — set `.env`, curl-check `/v1/models`, run `eval/run_triage.py`, commit results, tell Islam
 - Decisions: labels include prefilter-dropped fixtures as FP (tests triage, not prefilter); Gruntfile exec + livereload document.write labelled FP (heuristic misfires); dev-config ZAP key labelled real (committed credential)
+
+## 15:00 - Dashboard<->tool linkage verified (no changes needed)
+- Done: pulled web_scanners (25f0b29, my branch merged as 51b7f45); restarted pre-merge uvicorn (was 404ing /api/agent-scan + /agent); e2e agent run on NodeGoat: done in 15s, 5 steps, 10 findings with verdict/confidence/reason (triage AIError fallback firing correctly), verdict not_ready + blockers + story + stats; live API keys == fake-agent-run.json keys == NEXT.md contract; agent.js reads verdict/confidence/reason/verified/blockers/story/stats — page renders both live and ?demo=1. Full web scan also completed: 24 findings (1 high/6 med/7 low/10 info), all 7 scanners ran, gate FAILED on zap SQL Injection, no errors.
+- State: works — linkage verified, nothing to fix, so no code commit (others' files untouched per ownership)
+- Next: live-model eval when provider ready (TO_DO.md); re-verify linkage with real verdicts then
+- Decisions: did NOT commit to web_scanners directly (Islam merges); offline all-review/0-fix output is the designed fallback, not a linkage bug
