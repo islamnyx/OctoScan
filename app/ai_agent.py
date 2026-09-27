@@ -188,6 +188,9 @@ def list_runs(limit: int = 20) -> list[dict]:
     except Exception:
         pass
     with _LOCK:
+        for r in runs.values():  # on disk as running but no live thread: server restarted
+            if r.status == "running" and r.run_id not in _RUNS:
+                r.status, r.error = "failed", "orphaned: server restarted mid-run"
         runs.update(_RUNS)
         rows = [{
             "run_id": r.run_id, "status": r.status, "repo_url": r.repo_url, "verdict": r.verdict,
