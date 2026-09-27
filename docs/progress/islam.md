@@ -29,3 +29,9 @@
 - State: works — run 1: 16/20 targets, 495 s, SQL Injection found (1 high, 4 med, 2 low, 1 info after dedupe; 148 raw), 0 orphan scans, daemon alive; run 2: identical, 480 s. Before the fix: 1/20, no SQLi
 - Next (friend, owns zap_scanner.py): (1) restore bug: `int(...) or None` drops ZAP's default 0 -> daemon left at MaxScanDurationInMins=1 (confirmed); (2) budget = min(1200, SCAN_TIMEOUT_SECONDS/2) = 450 s, but 20 x 60 s min cap = 1200 s -> max ~16/20; (3) junk ascan targets (/juice-shop/node_modules/..., assets/public/assets/public/...) waste slots
 - Decisions: web scan never demoed live (AGENTS.md); SQLi detection is enough for the stretch "web + code correlation"
+
+## 13:45 - Integrated + next-phase plan
+- Done: web_scanners = 769f6d0 (friend's ZAP fix + AI foundation), 20 tests pass; wrote docs/NEXT.md (3-person split, contracts, timeline)
+- State: works; still NO AI key configured anywhere -> first step for everyone (.env AI_* = NVIDIA)
+- Next: Islam -> hack/islam-agent (ai_agent.py loop, ai_fix.py fix+verify, /api/agent-scan); A -> prefilter+triage+eval; B -> story + agent.html + docs
+- Decisions: integration branch is web_scanners (origin/main left at 5fc04ea); CUT learn-rule, Brev, ZAP follow-ups
