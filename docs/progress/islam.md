@@ -11,3 +11,9 @@
 - State: works offline — 17 pytest pass (.venv/bin/python -m pytest tests -q), app smoke OK; NOT yet tested live: no AI provider configured on this machine
 - Next: add NVIDIA key + model id via dashboard, live smoke of call_json; then pre-filter -> triage
 - Decisions: call_json contract as in HANDOFF §3 (+ meta attempts/redactions); structured output (json_schema) only for provider "brev"/"vllm"; problem 7 (/ai-analyze blocking) handled by the background-thread agent, old endpoint unchanged; pytest in requirements-dev.txt
+
+## 12:38 - AI-layer verified end-to-end (hack/islam-core, 24959f0)
+- Done: 60 s cooldown for down providers (unreachable/5xx/429) in ai_core; AI review manifest now names the models that actually answered (+ "(fallback)")
+- State: works — 19 pytest pass; E2E via real app endpoints vs a fake OpenAI-compatible reasoning model (sandbox DATA_DIR): test-connection strips <think>; primary down -> fallback (dead primary hit 1x not 6x); nomination reaches review; numbered lines; analyze repaired prose -> valid JSON; 0 of 3 repo secret literals + 0 private key sent (10 [REDACTED]); total outage -> HTTP 200 non-AI summary
+- Next: live test with a real NVIDIA key + model id (still no provider configured here); then pre-filter -> triage
+- Decisions: fallback_used = "not the configured primary"; client errors (400/401/413) don't trigger cooldown
