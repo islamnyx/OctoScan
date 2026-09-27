@@ -23,3 +23,15 @@
 - State: works — build clean, vite 200, logo 200 via proxy; note `/assets/*` still 404s under FastAPI (needs base fix, user deferred)
 - Next: visual check in browser
 - Decisions: logo (orange octo mark, transparent bg) sits directly on dark surfaces, no accent box
+
+## 15:00 - repo synced, dashboard pushed
+- Done: committed 90d61e1 (React dashboard, static build, skill); new SSH key `~/.ssh/octoscan_github` (user added pub to GitHub); pushed `web_scanners`, now 0 ahead / 0 behind
+- State: works — push accepted (84103f3..90d61e1)
+- Next: integrator merges to main at sync point
+- Decisions: pushed via explicit SSH URL (remote still points at https); GitHub notes repo moved to `islamnyx/OctoScan` — future pushes should use the new location
+
+## 15:10 - full stop, relaunch from zero, green test pass
+- Done: killed all (uvicorn/vite/ZAP/juice), ports verified free, relaunched all four from zero (app PID 334166, vite PID 334219, ZAP 2.17.0 ~8s, juice 200)
+- State: works — live headers scan 66a90857 completed, 4 findings, gate PASSED; vite proxy, repo endpoint, dash/logo/api-root all 200; Juice serves real OWASP page
+- Next: none — stack verified end to end
+- Decisions: no full web scan demoed (20-min rule); headers-only scan proves pipeline
