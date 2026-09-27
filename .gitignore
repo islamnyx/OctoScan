@@ -8,5 +8,6 @@ data/ai_config.json
 .ZAP/
 .kilo/
 resources/
-.cluade/
+.claude/
+CLAUDE.md
 logs/
