@@ -70,3 +70,9 @@
 - State: works — 74 pytest pass; app restarted on the merged tree: / renders, /agent + ?demo=1 replay OK, /api/* OK; no keys/.env/data on any branch
 - Next: live run on Brev once configured; A: fix sys.path crash in eval/run_triage.py + run eval; project card + disclosure after 15:45
 - Decisions: people pushed straight to web_scanners/main at 15:12/15:19 -> always fetch + merge before pushing
+
+## 16:04 - Brev live: Ollama qwen3:32b on A100, first real agent run
+- Done: brev login/refresh; instance octoscan-gomycode (A100 80GB) serves Ollama qwen3:32b on :11434 (NOT vLLM); dedicated SSH tunnel 127.0.0.1:11436 -> instance :11434 (ControlMaster=no, the brev master closes after 10 min idle); provider "brev" saved + activated via /api/ai/providers (no key); ai_core json_schema structured output accepted by Ollama
+- State: run 1 (d80810d432c1460c) done in 7.5 min, 22 calls, median 16.6 s, qwen3:32b, triage 25 real/4 FP/1 review, not_ready + real attack story; BUT all patches "not verifiable": my 15:00 gitignore of data/agent/ made semgrep skip the copies -> fixed with --no-git-ignore (ef2947b, regression test, 75 pass); run 2 started 16:04
+- Next: confirm >=1 verified fix on run 2, record it as the replay; merge + push web_scanners
+- Decisions: docs must say Brev runs Ollama (qwen3:32b), not vLLM/Nemotron; tunnel must stay up during the demo
