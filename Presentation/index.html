@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OctoScan, Ship code, not breaches</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#07080a; --slate:#0d1014; --slate-2:#111419;
+  --ink:#f3efe9; --ink-dim:#9a9ca1;
+  --orange:#ff6a2c; --orange-dim:#b14a22; --orange-glow:#ffb35c;
+  --line:rgba(255,255,255,0.08); --line-bright:rgba(255,255,255,0.14);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+/* slide mode, every section fills exactly one screen when presenting */
+html{scroll-snap-type:y proximity}
+main>section:not(.trust){min-height:100svh;scroll-snap-align:start;display:flex;flex-direction:column;justify-content:center}
+main>section:not(.trust)>.wrap,main>section:not(.trust) .inner{width:100%}
+@media (prefers-reduced-motion:reduce){html{scroll-snap-type:none}}
+body{background:var(--void);color:var(--ink);font-family:'Inter',sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3{font-family:'Space Grotesk',sans-serif;font-weight:600;letter-spacing:-0.01em;line-height:1.1}
+.mono{font-family:'IBM Plex Mono',monospace}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+::selection{background:var(--orange);color:#07080a}
+a:focus-visible,button:focus-visible{outline:2px solid var(--orange-glow);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important} #cursor,#cursor-ring,#bg-canvas{display:none}}
+
+/* grain */
+.grain{position:fixed;inset:0;pointer-events:none;z-index:5;opacity:.06;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+/* cursor follow - SmoothUI CursorFollow */
+#cursor{position:fixed;width:8px;height:8px;background:var(--orange);border-radius:50%;pointer-events:none;z-index:300;transform:translate(-50%,-50%)}
+#cursor-ring{position:fixed;width:34px;height:34px;border:1px solid rgba(255,106,44,.5);border-radius:50%;pointer-events:none;z-index:300;transform:translate(-50%,-50%);transition:width .25s,height .25s,border-color .25s}
+#cursor-ring.hovering{width:56px;height:56px;border-color:var(--orange-glow)}
+@media (hover:none){#cursor,#cursor-ring{display:none}}
+
+/* bg canvas - MagicUI particles */
+#bg-canvas{position:fixed;inset:0;z-index:0;opacity:.55;pointer-events:none}
+main,nav,footer{position:relative;z-index:2}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:50;background:rgba(7,8,10,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 24px;max-width:1280px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{height:30px;width:30px;filter:drop-shadow(0 0 12px rgba(255,106,44,.6))}
+.brand-text{display:flex;flex-direction:column;line-height:1.1}
+.brand-text span{font-family:'Space Grotesk';font-weight:600;font-size:1.05rem}
+.brand-text span b{color:var(--orange)}
+.brand-text small{font-family:'Inter',sans-serif;font-size:.7rem;font-weight:500;color:#c7c7c9;letter-spacing:.02em;opacity:.85}
+.nav-links{display:flex;gap:22px;font-size:.83rem;letter-spacing:.02em;color:var(--ink-dim);transition:opacity .45s cubic-bezier(.2,.8,.2,1),transform .45s cubic-bezier(.2,.8,.2,1)}
+.nav-links a{position:relative;white-space:nowrap;padding:4px 2px}
+.nav-links a:hover{color:var(--ink)}
+/* top links always stay visible, side rail acts as scroll progress only */
+/* left side rail, appears on scroll down, hides on scroll up */
+.side-rail{position:fixed;left:18px;top:50%;transform:translate(-140%,-50%);z-index:60;display:flex;flex-direction:column;gap:6px;padding:14px 10px;background:rgba(13,16,20,.86);backdrop-filter:blur(12px);border:1px solid rgba(255,106,44,.3);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 24px rgba(255,106,44,.12);opacity:0;transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .45s ease}
+body.railed .side-rail{transform:translate(0,-50%);opacity:1}
+.side-rail a{display:flex;align-items:center;gap:10px;padding:10px 14px 10px 10px;border-radius:10px;font-size:.82rem;color:var(--ink-dim);white-space:nowrap;transition:background .25s,color .25s}
+.side-rail a::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--orange-dim);flex-shrink:0;transition:background .25s,box-shadow .25s}
+.side-rail a:hover,.side-rail a.active{background:rgba(255,106,44,.1);color:var(--ink)}
+.side-rail a:hover::before,.side-rail a.active::before{background:var(--orange);box-shadow:0 0 10px var(--orange)}
+.side-rail .rail-tag{font-family:'IBM Plex Mono';font-size:.6rem;letter-spacing:.18em;color:var(--orange-dim);padding:2px 10px 6px}
+@media(max-width:900px),(hover:none){.side-rail{display:none}}
+.nav-cta{font-size:.88rem;padding:9px 18px;border:1px solid var(--line-bright);border-radius:100px;position:relative;overflow:hidden}
+.nav-cta:hover{border-color:var(--orange);color:var(--orange)}
+.nav-right{display:flex;align-items:center;gap:14px}
+.socials{display:flex;align-items:center;gap:10px}
+.socials a{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:50%;color:var(--ink-dim);transition:border-color .25s,color .25s,transform .25s}
+.socials a:hover{border-color:var(--orange);color:var(--orange);transform:translateY(-2px)}
+.socials svg{width:15px;height:15px;fill:currentColor}
+@media(max-width:1100px){.socials{display:none}}
+@media(max-width:920px){.nav-links{display:none}}
+
+/* HERO */
+.hero{padding:110px 0 90px;position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}
+@keyframes blink{50%{opacity:.3}}
+.hero h1{font-size:clamp(2.6rem,5.5vw,4rem);max-width:12ch}
+.hero h1 .shine{background:linear-gradient(110deg,#f3efe9 30%,var(--orange-glow) 45%,var(--orange) 50%,var(--orange-glow) 55%,#f3efe9 70%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 4s linear infinite}
+@keyframes shine{to{background-position:200% center}}
+.hero p.lede{margin-top:22px;font-size:1.08rem;color:var(--ink-dim);max-width:46ch}
+.terminal{margin-top:26px;font-family:'IBM Plex Mono';font-size:.82rem;background:#0a0c0f;border:1px solid var(--line-bright);border-radius:8px;padding:14px 16px;max-width:480px;color:#c9c9c9}
+.terminal .green{color:var(--orange-glow)}
+.terminal .caret{display:inline-block;width:8px;height:15px;background:var(--orange);vertical-align:-2px;animation:blink 1s infinite}
+.hero-ctas{margin-top:32px;display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.btn-primary{background:var(--orange);color:#1a0a02;font-weight:600;font-size:.95rem;padding:14px 28px;border-radius:100px;display:inline-block;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;will-change:transform}
+.btn-primary::after{content:'';position:absolute;top:0;left:-80%;width:50%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);transform:skewX(-20deg);animation:shimmer 2.8s infinite}
+@keyframes shimmer{0%{left:-80%}60%,100%{left:130%}}
+.btn-primary:hover{box-shadow:0 0 0 1px var(--orange),0 12px 40px -6px rgba(255,106,44,.6);transform:translateY(-2px)}
+.btn-ghost{font-size:.92rem;color:var(--ink-dim);border-bottom:1px solid var(--line-bright);padding-bottom:2px}
+.btn-ghost:hover{color:var(--ink);border-color:var(--orange)}
+
+/* hero mark - this exact logo becomes the pet, JS-driven motion (no CSS float to avoid snaps) */
+.hero-mark{position:relative;display:flex;justify-content:center;align-items:center;min-height:380px}
+.hero-mark::before{content:'';position:absolute;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle,rgba(255,106,44,.20),rgba(255,106,44,.06) 45%,transparent 68%);filter:blur(4px);pointer-events:none;transition:opacity .5s ease}
+.hero-mark.empty::before{opacity:.25}
+.hero-mark img{position:relative;width:100%;max-width:360px;mix-blend-mode:screen;filter:drop-shadow(0 0 22px rgba(255,106,44,.22));will-change:transform}
+#octoHero{opacity:1}
+#octoHero.pet-mode{position:fixed;left:0;top:30vh;width:280px;max-width:none;height:280px;object-fit:contain;z-index:1;pointer-events:none;mix-blend-mode:screen;background:transparent;margin:0;will-change:transform,opacity}
+main,nav,footer{position:relative;z-index:2}
+#heroPlaceholder{width:360px;max-width:100%;aspect-ratio:1/1;pointer-events:none}
+@media(max-width:800px){#octoHero.pet-mode{width:220px;height:220px}#heroPlaceholder{width:220px}}
+.radial-center img,.brand img,.foot-brand img{mix-blend-mode:screen}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+@media(max-width:860px){.hero-grid{grid-template-columns:1fr}.hero-mark{order:-1;min-height:280px}.hero-mark img{max-width:220px}}
+
+/* marquee trust - MagicUI */
+.trust{padding:0;border-bottom:1px solid var(--line);overflow:hidden;background:rgba(255,106,44,.02)}
+.trust-inner{display:flex;align-items:center;gap:0}
+.trust-label{font-family:'IBM Plex Mono';font-size:.72rem;color:var(--ink-dim);padding:22px 26px;white-space:nowrap;border-right:1px solid var(--line);letter-spacing:.05em}
+.marquee{flex:1;overflow:hidden;white-space:nowrap;mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent)}
+.marquee-track{display:inline-flex;gap:0;animation:marquee 22s linear infinite;padding:22px 0}
+.marquee-track span{padding:0 34px;font-family:'Space Grotesk';font-size:.95rem;color:var(--ink-dim);border-right:1px solid var(--line)}
+.marquee-track span i{color:var(--orange);font-style:normal;margin-right:8px}
+@keyframes marquee{to{transform:translateX(-50%)}}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+.reveal.visible{opacity:1;transform:none}
+
+/* ENGINE, compact one-frame, side-by-side */
+.engine{padding:48px 0 84px;background:var(--slate);border-bottom:1px solid var(--line);position:relative;z-index:2;overflow:hidden}
+.engine-grid{display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:center;max-width:1120px}
+.engine .section-head{margin-bottom:0}
+.section-head{max-width:60ch;margin-bottom:56px}
+.engine .section-head{max-width:none}
+.engine .section-head h2{font-size:clamp(1.6rem,2.4vw,2.1rem)}
+.engine .section-head p{margin-top:12px;color:var(--ink-dim);font-size:.94rem;line-height:1.55}
+.section-head h2{font-size:clamp(1.8rem,3vw,2.5rem)}
+.section-head p{margin-top:14px;color:var(--ink-dim);font-size:1.02rem}
+.radial{position:relative;max-width:380px;margin:0 auto;aspect-ratio:1/1;width:100%}
+.radial svg.wires{position:absolute;inset:14%;width:72%;height:72%;pointer-events:none;opacity:.8}
+.radial-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:22%;cursor:pointer;z-index:2}
+.radial-center img{width:100%;filter:drop-shadow(0 0 34px rgba(255,106,44,.45));transition:transform .3s}
+.radial-center:hover img{transform:scale(1.08) rotate(4deg)}
+.radial-center .core-pulse{position:absolute;inset:-22%;border:1px solid rgba(255,106,44,.4);border-radius:50%;animation:corePulse 2.4s ease-out infinite}
+@keyframes corePulse{0%{transform:scale(.7);opacity:1}100%{transform:scale(1.25);opacity:0}}
+.node{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid transparent;border-radius:10px;transition:background .25s,border-color .25s;cursor:default;background:transparent}
+.node:hover,.node.active{background:rgba(255,106,44,.07);border-color:rgba(255,106,44,.35)}
+.node .dot{width:8px;height:8px;border-radius:50%;background:var(--orange-dim);flex-shrink:0;box-shadow:0 0 0 0 rgba(255,106,44,.5);transition:box-shadow .25s,background .25s}
+.node:hover .dot,.node.active .dot{background:var(--orange);box-shadow:0 0 12px var(--orange)}
+.node .label{font-family:'IBM Plex Mono';font-size:.82rem;line-height:1.35}
+.node .label b{display:block;font-family:'Inter';font-weight:600;font-size:.82rem;color:var(--ink);margin-bottom:1px}
+.node .label span{color:var(--ink-dim);font-size:.7rem}
+/* tool logos, raw transparent, big and obvious */
+.node .tool{width:72px;height:72px;flex-shrink:0;background:transparent;border:none;box-shadow:none;padding:0;display:flex;align-items:center;justify-content:center;overflow:visible;transition:transform .25s}
+.node:hover .tool{transform:scale(1.1)}
+.node .tool img{width:100%;height:100%;object-fit:contain;display:block;background:transparent!important;filter:drop-shadow(0 0 12px rgba(255,106,44,.5))}
+.node .tool.wide{width:72px;height:72px}
+.node.has-logo{gap:10px;padding:6px;background:transparent}
+.node.has-logo .label b{font-size:.88rem;white-space:nowrap}
+.node.has-logo .label span{font-size:.72rem;color:var(--ink-dim);white-space:nowrap}
+.radial-list{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#engine-detail{text-align:left;margin-top:16px;font-family:'IBM Plex Mono';font-size:.78rem;line-height:1.5;color:var(--orange-glow);min-height:66px;background:rgba(255,106,44,.06);border:1px solid rgba(255,106,44,.25);border-radius:10px;padding:12px 14px}
+@media(min-width:900px){
+  .radial{min-height:0}
+  .radial-list{display:contents}
+  .node{position:absolute;width:170px;padding:6px}
+  .node.has-logo{width:176px}
+  /* tight circle, short wires, no overflow, bottom text nodes clear of edge */
+  .node[data-pos="0"]{top:1%;left:50%;transform:translate(-50%,-10%);text-align:center;flex-direction:column-reverse;align-items:center;gap:6px}
+  .node[data-pos="0"] .tool{width:64px;height:64px}
+  .node[data-pos="0"] .label{text-align:center}
+  .node[data-pos="0"] .label b{font-size:.88rem}
+  .node[data-pos="0"] .label span{font-size:.72rem}
+  .node[data-pos="1"]{top:22%;left:76%;transform:translate(-10%,-50%)}
+  .node[data-pos="2"]{top:50%;left:86%;transform:translate(-6%,-50%)}
+  .node[data-pos="3"]{top:78%;left:76%;transform:translate(-10%,-50%)}
+  .node[data-pos="4"]{top:82%;left:50%;transform:translate(-50%,0%);text-align:center;flex-direction:column;align-items:center}
+  .node[data-pos="5"]{top:78%;left:24%;transform:translate(-90%,-50%);flex-direction:row-reverse;text-align:right}
+  .node[data-pos="6"]{top:50%;left:14%;transform:translate(-94%,-50%);flex-direction:row-reverse;text-align:right}
+  .node[data-pos="7"]{top:22%;left:24%;transform:translate(-90%,-50%);flex-direction:row-reverse;text-align:right}
+}
+@media(max-width:899px){
+  .engine-grid{grid-template-columns:1fr;gap:24px}
+  .engine .section-head{text-align:center}
+  #engine-detail{text-align:center}
+  .radial{max-width:340px}
+  .node .tool{width:64px;height:64px}
+  .node .tool.wide{width:88px;height:48px}
+}
+
+/* PROBLEM + MARKET, pitch narrative, same theme */
+.problem{padding:90px 0;background:transparent;border-bottom:1px solid var(--line);position:relative}
+.problem .wrap{position:relative;z-index:1}
+.problem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:48px}
+.problem-card{background:rgba(255,255,255,.02);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:14px;padding:28px 24px;transition:border-color .25s,transform .25s}
+.problem-card:hover{border-color:rgba(255,45,77,.5);transform:translateY(-5px)}
+.problem-card .kicker{font-family:'IBM Plex Mono';font-size:.7rem;letter-spacing:.18em;color:#ff8a7a}
+.problem-card h3{font-size:1.25rem;margin:12px 0 10px}
+.problem-card p{color:var(--ink-dim);font-size:.92rem}
+.problem-card .stat{margin-top:16px;font-family:'IBM Plex Mono';font-size:.78rem;color:var(--orange-glow)}
+.market{padding:90px 0;border-bottom:1px solid var(--line);background:transparent}
+.market-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;margin-top:48px;align-items:start}
+.market-stats{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.mstat{background:rgba(255,106,44,.05);border:1px solid rgba(255,106,44,.25);border-radius:12px;padding:20px}
+.mstat b{display:block;font-family:'Space Grotesk';font-size:1.7rem;color:var(--orange)}
+.mstat span{font-family:'IBM Plex Mono';font-size:.72rem;color:var(--ink-dim);letter-spacing:.04em}
+.market-list{list-style:none;display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.market-list li{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:.92rem;color:var(--ink-dim)}
+.market-list li b{color:var(--ink)}
+.market-list li .tag{display:inline-block;margin-left:8px;font-family:'IBM Plex Mono';font-size:.65rem;letter-spacing:.1em;color:var(--orange);border:1px solid rgba(255,106,44,.35);border-radius:100px;padding:2px 9px}
+/* split section heads with mascot visual */
+.sec-head-split{display:flex;align-items:center;justify-content:space-between;gap:32px}
+.section-head.sec-head-split{max-width:none;margin-bottom:48px}
+.sec-head-split .sec-text{flex:0 1 60ch;min-width:0}
+.sec-visual{position:relative;flex-shrink:0;width:210px;display:flex;justify-content:flex-end;align-items:center;margin-left:auto;margin-right:-14px}
+.sec-visual::before{content:'';position:absolute;right:0;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(255,106,44,.18),transparent 65%);pointer-events:none}
+.sec-visual img{position:relative;width:100%;max-width:210px;mix-blend-mode:screen;filter:drop-shadow(0 0 22px rgba(255,106,44,.35));animation:mascotFloat 4s ease-in-out infinite}
+.sec-visual.dz::before{background:radial-gradient(circle,rgba(0,153,51,.32),rgba(210,16,52,.14) 52%,transparent 70%)}
+.sec-visual.dz img{filter:drop-shadow(0 0 22px rgba(0,180,90,.5)) drop-shadow(0 0 44px rgba(210,16,52,.25))}
+@keyframes mascotFloat{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-12px) rotate(1.5deg)}}
+@media(max-width:860px){.sec-head-split{flex-direction:column-reverse;text-align:center}.sec-visual{width:160px;margin-right:0;justify-content:center}.sec-visual img{max-width:160px}}
+@media(max-width:860px){.problem-grid{grid-template-columns:1fr}.market-grid{grid-template-columns:1fr}.market-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.market-stats{grid-template-columns:1fr}}
+
+/* PRODUCTS (placeholder, 3 products TBD), transparent so the travelling logo shows behind */
+.products{padding:90px 0;background:transparent;border-bottom:1px solid var(--line);position:relative}
+.products .wrap{position:relative;z-index:1}
+.product-card{background:rgba(13,16,20,.72);backdrop-filter:blur(6px)}
+.product-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.product-card{background:rgba(255,255,255,.02);border:1px solid var(--line);border-radius:14px;padding:28px 24px;transition:border-color .25s,transform .25s}
+.product-card:hover{border-color:rgba(255,106,44,.45);transform:translateY(-5px)}
+.product-card .num{font-size:.8rem;color:var(--orange);display:inline-block;padding:5px 12px;border:1px solid rgba(255,106,44,.3);border-radius:100px;margin-bottom:16px}
+.product-card h3{font-size:1.2rem;margin-bottom:8px}
+.product-card p{color:var(--ink-dim);font-size:.9rem}
+@media(max-width:800px){.product-grid{grid-template-columns:1fr}}
+
+/* AGENT MAP, octoscan hub in the center, scanners left, NVIDIA right, all transparent */
+.agent{padding:90px 0;background:transparent;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+.agent .wrap{position:relative;z-index:1}
+.agent-map{position:relative;display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-top:48px;align-items:center}
+.agent-wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+.agent-wires path{fill:none;stroke:rgba(255,106,44,.45);stroke-width:1.5;stroke-dasharray:7 7;animation:flow 1.4s linear infinite}
+.agent-wires path.back{stroke:rgba(255,179,92,.3);animation-direction:reverse}
+@keyframes flow{to{stroke-dashoffset:-28}}
+.agent-col{position:relative;z-index:1;background:transparent;border:1px solid var(--line);border-radius:14px;padding:26px 22px;display:flex;flex-direction:column;gap:14px}
+.agent-col .col-kicker{font-family:'IBM Plex Mono';font-size:.68rem;letter-spacing:.2em;color:var(--orange)}
+.agent-col h3{font-size:1.2rem}
+.agent-col p{color:var(--ink-dim);font-size:.88rem}
+.scan-chips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+.scan-chips span{font-family:'IBM Plex Mono';font-size:.68rem;color:var(--ink-dim);border:1px solid var(--line);border-radius:8px;padding:7px 9px;text-align:center;background:transparent;transition:border-color .25s,color .25s}
+.scan-chips span:hover{border-color:rgba(255,106,44,.5);color:var(--ink)}
+.scan-chips span b{display:block;color:var(--ink);font-size:.7rem}
+.agent-hub{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:10px 18px;min-width:250px}
+.hub-glow{position:absolute;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(255,106,44,.22),rgba(255,106,44,.06) 45%,transparent 68%);pointer-events:none}
+.hub-ring{position:absolute;width:210px;height:210px;border:1px solid rgba(255,106,44,.4);border-radius:50%;animation:corePulse 2.4s ease-out infinite;pointer-events:none}
+.agent-core{position:relative;width:200px;mix-blend-mode:screen;filter:drop-shadow(0 0 34px rgba(255,106,44,.55))}
+.hub-label{margin-top:14px;font-family:'Space Grotesk';font-weight:700;font-size:1.05rem;letter-spacing:.08em}
+.hub-label small{display:block;font-family:'IBM Plex Mono';font-weight:400;font-size:.65rem;letter-spacing:.3em;color:var(--orange);margin-top:4px}
+.hub-flow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center}
+.flow-tag{font-family:'IBM Plex Mono';font-size:.65rem;letter-spacing:.12em;color:var(--orange-glow);border:1px solid rgba(255,106,44,.35);border-radius:100px;padding:4px 12px;display:inline-block;background:transparent}
+.nvidia-stack{display:flex;flex-direction:column;gap:14px;align-items:center;margin-top:4px}
+.nvidia-stack img.nemotron{width:100%;max-width:200px;mix-blend-mode:screen;filter:drop-shadow(0 0 14px rgba(118,185,0,.35))}
+.nvidia-stack img.nvidia{width:100%;max-width:150px;filter:brightness(0) invert(1);opacity:.92}
+.nvidia-cap{font-family:'IBM Plex Mono';font-size:.66rem;color:var(--ink-dim);letter-spacing:.06em;text-align:center;line-height:1.6}
+.agent-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
+.agent-steps div{background:transparent;border:1px solid var(--line);border-radius:10px;padding:16px;font-size:.86rem;color:var(--ink-dim)}
+.agent-steps div b{display:block;color:var(--ink);margin-bottom:4px;font-size:.9rem}
+.agent-steps div .mono{font-size:.68rem;color:var(--orange)}
+@media(max-width:900px){.agent-map{grid-template-columns:1fr;gap:20px}.agent-wires{display:none}.agent-steps{grid-template-columns:1fr}.agent-hub{min-width:0}}
+
+/* DASHBOARD with border beam - MagicUI */
+.dash{padding:110px 0}
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
+.panel{position:relative;background:var(--slate-2);border:1px solid var(--line-bright);border-radius:14px;padding:24px;overflow:hidden}
+.panel::before{content:'';position:absolute;inset:-2px;border-radius:14px;padding:2px;background:conic-gradient(from var(--beam-angle,0deg),transparent 0 70%,var(--orange) 85%,var(--orange-glow) 90%,transparent 100%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:beam 4s linear infinite;pointer-events:none}
+@property --beam-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes beam{to{--beam-angle:360deg}}
+.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.panel-head h4{font-size:.88rem;font-weight:500;color:var(--ink-dim)}
+.dash-shot{margin:0;border:1px solid var(--line-bright);border-radius:10px;overflow:hidden;background:#0a0c0f}
+.dash-shot img{width:100%;height:auto;display:block;object-fit:cover}
+.feed-item{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-top:1px solid var(--line);gap:12px}
+.feed-item .sev{font-family:'IBM Plex Mono';font-size:.68rem;padding:3px 8px;border-radius:4px;background:rgba(255,106,44,.12);color:var(--orange);flex-shrink:0}
+.feed-item .desc{font-size:.86rem;color:var(--ink-dim);flex:1}
+.feed-item .view{font-size:.78rem;color:var(--ink-dim);border-bottom:1px solid var(--line-bright);flex-shrink:0}
+.feed-item .view:hover{color:var(--orange)}
+.score-ring{width:68px;height:68px;border-radius:50%;background:conic-gradient(var(--orange) 0%,rgba(255,255,255,.08) 0);display:flex;align-items:center;justify-content:center;transition:background 1s}
+.score-ring .inner{width:54px;height:54px;border-radius:50%;background:var(--slate-2);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:.82rem}
+.dash-copy h2{font-size:clamp(1.7rem,3vw,2.4rem);margin-bottom:16px}
+.dash-copy p{color:var(--ink-dim);max-width:42ch;margin-bottom:26px}
+.dash-copy ul{list-style:none;display:flex;flex-direction:column;gap:14px}
+.dash-copy li{display:flex;gap:12px;font-size:.94rem;color:var(--ink-dim);background:rgba(255,255,255,.02);border:1px solid var(--line);padding:12px 16px;border-radius:10px;transition:border-color .25s,transform .25s}
+.dash-copy li:hover{border-color:rgba(255,106,44,.4);transform:translateX(6px)}
+.dash-copy li::before{content:'—';color:var(--orange)}
+@media(max-width:860px){.dash-grid{grid-template-columns:1fr}}
+
+/* HOW */
+.how{padding:110px 0;background:var(--slate);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+.step{padding:0 34px;border-left:1px solid var(--line);transition:transform .3s}
+.step:hover{transform:translateY(-6px)}
+.step:first-child{padding-left:0;border-left:none}
+.step .num{font-family:'IBM Plex Mono';font-size:.85rem;color:var(--orange);margin-bottom:18px;display:inline-block;padding:6px 12px;border:1px solid rgba(255,106,44,.3);border-radius:100px}
+.step h3{font-size:1.25rem;margin-bottom:10px}
+.step p{color:var(--ink-dim);font-size:.94rem}
+@media(max-width:800px){.steps{grid-template-columns:1fr;gap:36px}.step{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:28px}.step:first-child{border-top:none;padding-top:0}}
+
+/* INTEGRITY + auth doc preview */
+.integrity{padding:90px 0;text-align:left}
+.integrity .wrap{max-width:1180px}
+.integrity-grid{display:grid;grid-template-columns:1fr 390px;gap:56px;align-items:center}
+.integrity p.statement{font-family:'Space Grotesk';font-weight:500;font-size:clamp(1.4rem,2.4vw,1.9rem);line-height:1.45}
+.integrity p.statement .dim{color:var(--ink-dim)}
+.integrity .fine{margin-top:26px;font-size:.82rem;color:var(--ink-dim);font-family:'IBM Plex Mono';letter-spacing:.05em}
+.auth-shot{position:relative;transform:rotate(1.5deg);transition:transform .35s ease}
+.auth-shot:hover{transform:rotate(0deg) translateY(-4px)}
+.doc-card{background:#fbf9f5;color:#232323;border-radius:10px;padding:22px 24px 0;max-height:440px;overflow:hidden;position:relative;border:1px solid rgba(255,106,44,.35);box-shadow:0 24px 60px -18px rgba(255,106,44,.35),0 8px 30px rgba(0,0,0,.5);font-family:'Inter',sans-serif}
+.doc-card::after{content:'';position:absolute;left:0;right:0;bottom:0;height:110px;background:linear-gradient(180deg,rgba(251,249,245,0),#fbf9f5 85%);pointer-events:none}
+.doc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid rgba(0,0,0,.12)}
+.doc-top img{width:44px;height:44px;object-fit:contain}
+.doc-brand{text-align:right;line-height:1.2}
+.doc-brand b{display:block;font-family:'Space Grotesk';font-size:.82rem;letter-spacing:.06em;color:#8a3c14}
+.doc-brand span{font-size:.62rem;font-style:italic;color:#777}
+.doc-title{margin:12px 0 2px;font-family:'Space Grotesk';font-weight:700;font-size:1.02rem;letter-spacing:.01em;color:#161616;border-top:2px solid #c25a1e;padding-top:10px}
+.doc-sub{font-size:.66rem;font-style:italic;color:#777;margin-bottom:10px}
+.doc-h{font-family:'Inter';font-weight:700;font-size:.72rem;color:#8a3c14;margin:12px 0 6px;letter-spacing:.02em}
+.doc-p{font-size:.66rem;line-height:1.55;color:#333}
+.doc-p b{color:#111}
+.doc-line{border-bottom:1px dotted #999;display:inline-block;min-width:120px}
+.doc-ul{list-style:none;margin:6px 0 0;display:flex;flex-direction:column;gap:3px}
+.doc-ul li{font-size:.64rem;color:#333;display:flex;gap:8px;line-height:1.5}
+.doc-ul li::before{content:'–';color:#8a3c14;flex-shrink:0}
+.doc-foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:10px 0 14px;border-top:1px solid rgba(0,0,0,.1);font-family:'IBM Plex Mono';font-size:.6rem;letter-spacing:.08em;color:#8a3c14}
+.auth-cap{margin-top:14px;text-align:center;font-family:'IBM Plex Mono';font-size:.68rem;letter-spacing:.14em;color:var(--ink-dim)}
+@media(max-width:900px){.integrity-grid{grid-template-columns:1fr;gap:36px}.auth-shot{max-width:420px;margin:0 auto;transform:none}}
+
+/* CTA */
+.cta{padding:130px 0;text-align:center;border-top:1px solid var(--line);position:relative;overflow:hidden}
+.cta::before{content:'';position:absolute;left:50%;top:50%;width:700px;height:700px;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(255,106,44,.14),transparent 60%);pointer-events:none}
+.cta h2{font-size:clamp(2.2rem,4.5vw,3.2rem);max-width:16ch;margin:0 auto 20px;position:relative}
+.cta p{color:var(--ink-dim);max-width:42ch;margin:0 auto 36px;position:relative}
+.cta .mono-small{font-family:'IBM Plex Mono';font-size:.75rem;color:var(--orange-dim);margin-top:22px;letter-spacing:.05em}
+
+footer{border-top:1px solid var(--line);padding:36px 0}
+.foot-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.foot-brand{display:flex;align-items:center;gap:9px}
+.foot-brand img{height:22px;width:22px}
+.foot-brand span{font-family:'IBM Plex Mono';font-size:.8rem;color:var(--ink-dim)}
+footer .links{display:flex;gap:24px;font-size:.82rem;color:var(--ink-dim)}
+footer .links a:hover{color:var(--orange)}
+
+/* pilot request side panel */
+.panel-overlay{position:fixed;inset:0;background:rgba(3,4,6,.6);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .3s ease;z-index:390}
+.panel-overlay.open{opacity:1;pointer-events:auto}
+.side-panel{position:fixed;top:0;right:0;height:100dvh;width:min(430px,94vw);background:var(--slate-2);border-left:1px solid rgba(255,106,44,.35);box-shadow:-30px 0 80px rgba(0,0,0,.6);transform:translateX(102%);transition:transform .38s cubic-bezier(.2,.8,.2,1);z-index:400;display:flex;flex-direction:column}
+.side-panel.open{transform:none}
+.side-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:24px 24px 0}
+.side-head h3{font-size:1.3rem}
+.side-head p{color:var(--ink-dim);font-size:.86rem;margin-top:6px;max-width:30ch}
+.side-close{width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--line-bright);background:transparent;color:var(--ink-dim);font-size:1rem;cursor:pointer;transition:border-color .2s,color .2s}
+.side-close:hover{border-color:var(--orange);color:var(--orange)}
+.side-body{padding:20px 24px 24px;overflow-y:auto;flex:1}
+.side-body label{display:block;font-family:'IBM Plex Mono';font-size:.7rem;letter-spacing:.06em;color:var(--ink-dim);margin:14px 0 6px;text-transform:uppercase}
+.side-body input,.side-body select,.side-body textarea{width:100%;background:#0a0c0f;border:1px solid var(--line-bright);border-radius:8px;color:var(--ink);font-family:'Inter';font-size:.9rem;padding:11px 12px;outline:none;transition:border-color .2s,box-shadow .2s}
+.side-body input:focus,.side-body select:focus,.side-body textarea:focus{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange)}
+.side-body textarea{min-height:90px;resize:vertical}
+.consent{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:.8rem;color:var(--ink-dim)}
+.consent input{width:auto;margin-top:3px;accent-color:var(--orange)}
+.form-err{display:none;margin-top:12px;font-size:.82rem;color:#ff8a7a}
+.form-ok{display:none;margin-top:12px;font-size:.86rem;color:var(--orange-glow)}
+.side-foot{padding:0 24px 24px}
+.side-foot .btn-primary{width:100%;text-align:center;border:none;cursor:pointer}
+.side-note{margin-top:12px;text-align:center;font-family:'IBM Plex Mono';font-size:.68rem;color:var(--ink-dim);letter-spacing:.05em}
+
+</style>
+</head>
+<body>
+
+<div class="grain"></div>
+<canvas id="bg-canvas"></canvas>
+<div id="cursor"></div><div id="cursor-ring"></div>
+
+<nav>
+  <div class="nav-inner">
+    <div class="brand"><img src="assets/octoscan-mark.png" alt="OctoScan"><div class="brand-text"><span>Octo<b>Scan</b></span><small>by OctoSec Labs</small></div></div>
+    <div class="nav-links">
+      <a href="#problem" data-scramble>Problem</a>
+      <a href="#market" data-scramble>Market</a>
+      <a href="#products" data-scramble>Products</a>
+      <a href="#engine" data-scramble>Scanner</a>
+      <a href="#agent" data-scramble>AI Agent</a>
+      <a href="#dashboard" data-scramble>Dashboard</a>
+      <a href="#how" data-scramble>How</a>
+    </div>
+    <div class="nav-right">
+    <div class="socials">
+      <a href="https://github.com/" target="_blank" aria-label="GitHub"><svg viewBox="0 0 24 24"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.77 1.05.77 2.12v3.15c0 .3.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg></a>
+      <a href="mailto:hello@octoscan.dev" aria-label="Email"><svg viewBox="0 0 24 24"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h15A2.5 2.5 0 0 1 22 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 18.5v-13zm3.14.5L12 12.17 18.86 6H5.14zM20 7.74l-8 7.14-8-7.14v10.76h16V7.74z"/></svg></a>
+      <a href="https://instagram.com/" target="_blank" aria-label="Instagram"><svg viewBox="0 0 24 24"><path d="M12 2.2c3.2 0 3.58.01 4.85.07 3.25.15 4.77 1.7 4.92 4.92.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.15 3.23-1.66 4.77-4.92 4.92-1.27.06-1.64.07-4.85.07s-3.58-.01-4.85-.07c-3.26-.15-4.77-1.7-4.92-4.92C2.21 15.58 2.2 15.2 2.2 12s.01-3.58.07-4.85C2.42 3.92 3.94 2.38 7.19 2.23 8.46 2.18 8.84 2.2 12 2.2zm0 3.63a6.17 6.17 0 1 0 0 12.34 6.17 6.17 0 0 0 0-12.34zm0 10.18a4 4 0 1 1 0-8.01 4 4 0 0 1 0 8.01zm6.4-10.42a1.44 1.44 0 1 0 0-2.88 1.44 1.44 0 0 0 0 2.88z"/></svg></a>
+    </div>
+    <a href="#cta" class="nav-cta magnetic" data-open-pilot>Request pilot scan</a>
+    </div>
+  </div>
+</nav>
+
+<div class="side-rail" id="side-rail" aria-hidden="true">
+  <div class="rail-tag">OCTOSCAN</div>
+  <a href="#problem">Problem</a>
+  <a href="#market">Algeria Market</a>
+  <a href="#products">Our Products</a>
+  <a href="#engine">Website Scanner</a>
+  <a href="#agent">AI Agent</a>
+  <a href="#dashboard">Dashboard</a>
+  <a href="#how">How it works</a>
+</div>
+
+<main>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <h1>Ship code, <span class="shine">not breaches.</span></h1>
+      <p class="lede">OctoScan runs a non-intrusive, multi-layer security audit against your live URL before you launch, no code changes, no pentesting retainer, just a prioritized list of what to fix.</p>
+      <div class="terminal"><span class="green">$</span> <span id="typed"></span><span class="caret"></span></div>
+      <div class="hero-ctas">
+        <a href="#cta" class="btn-primary magnetic" data-open-pilot>Request the pilot scan</a>
+        <a href="#products" class="btn-ghost">See our products</a>
+      </div>
+    </div>
+    <div class="hero-mark" id="heroHome">
+      <img id="octoHero" src="assets/octoscan-mark.png" alt="OctoScan logomark, glowing orange octopus scanner">
+    </div>
+  </div>
+</section>
+
+<section class="trust">
+  <div class="trust-inner">
+    <div class="trust-label">BUILT FOR ALGERIAN STARTUPS · ALGIERS → ORAN → CONSTANTINE</div>
+    <div class="marquee"><div class="marquee-track" id="marquee-track">
+      <span><i>●</i>Startup Label ready</span><span><i>●</i>Law 18-07 + 25-11 compliant</span><span><i>●</i>CIB / EDAHABIA stacks</span><span><i>●</i>French + Arabic reports</span><span><i>●</i>Fixed DZD pricing</span>
+    </div></div>
+  </div>
+</section>
+
+<section class="problem reveal" id="problem">
+  <div class="wrap">
+    <div class="section-head sec-head-split">
+      <div class="sec-text">
+      <h2>The problem: Algerian startups ship blind.</h2>
+      <p>50,000 engineers graduate every year, 7,800+ projects registered on startup.dz, but fewer than 500 active tech startups ship with a real security check. One leak kills trust before you scale.</p>
+      </div>
+      <div class="sec-visual"><img src="assets/Gemini_Generated_Image_ege52eege52eege5-removebg-preview.png" alt="OctoScan asking, is your startup secure?"></div>
+    </div>
+    <div class="problem-grid">
+      <div class="problem-card"><div class="kicker">01 · SHIP BLIND</div><h3>Launch first, breach later</h3><p>Payment pages on CIB / EDAHABIA, .env and .git left reachable, missing CSP / HSTS / clickjacking headers. Founders discover it from customers, not from a report.</p><div class="stat mono">→ 14 signals on a real DZ mission · 0 critical only because someone checked</div></div>
+      <div class="problem-card"><div class="kicker">02 · PENTEST GAP</div><h3>Pentests are too late, too expensive</h3><p>Classic pentest = weeks of waiting + foreign-currency invoice. Early teams need a read-only pre-launch audit in hours, in French, with exact fix steps, not a 60-page PDF in English.</p><div class="stat mono">→ 15–25 min orchestrated assault · supervised by an operator</div></div>
+      <div class="problem-card"><div class="kicker">03 · LAW NOW PUNISHES</div><h3>Law 18-07 / 25-11 is already in force</h3><p>ANPDP declaration, mandatory DPO, DPIA for high-risk processing, 5-day breach notification. Fines 20,000–1,000,000 DZD + 2 months–5 years prison. "We didn't know" is not a defence.</p><div class="stat mono">→ Every scan runs under a signed authorization act</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="market reveal" id="market">
+  <div class="wrap">
+    <div class="section-head sec-head-split">
+      <div class="sec-text">
+      <h2>Why Algeria, why now.</h2>
+      <p>State-backed demand + legal pressure + real money in the ecosystem. Security is the gate to funding, public procurement, and CIB / EDAHABIA trust.</p>
+      </div>
+      <div class="sec-visual dz"><img src="assets/Gemini_Generated_Image_jtpqazjtpqazjtpq-removebg-preview.png" alt="OctoScan Algeria edition, green and white with crescent"></div>
+    </div>
+    <div class="market-grid">
+      <div class="market-stats">
+        <div class="mstat"><b>7,800+</b><span>REGISTRATIONS ON STARTUP.DZ (2024)</span></div>
+        <div class="mstat"><b>2,300+</b><span>STARTUP LABELS · TARGET 20,000 BY 2029</span></div>
+        <div class="mstat"><b>$650M</b><span>RAISED IN 2024 · +60% YOY · YASSIR $150M</span></div>
+        <div class="mstat"><b>124 + 104</b><span>INCUBATORS + UNIVERSITY CDEs · 60K STUDENTS</span></div>
+      </div>
+      <div>
+        <ul class="market-list">
+          <li><b>Startup Label = filter.</b> 3+3yr tax break, customs 5%, ASF equity up to 20M DZD, 20% public-procurement tranche. Labelled teams must look investable, clean security report included.<span class="tag">ASF · 2.4B DZD</span></li>
+          <li><b>Law 25-11 (July 2025) = trigger.</b> DPO mandatory, breach register, DPIA, ANPDP approval for hosting abroad. Every SaaS, fintech, healthtech, e-commerce is in scope.<span class="tag">ANPDP · 5-DAY NOTICE</span></li>
+          <li><b>Money is local.</b> ASF 130+ startups funded, Algérie Télécom 1.5B DZD AI fund, FCPR private VC from 50M DZD. VOLZ 3.35x exit, Moustachir IPO +119%, exits exist now.<span class="tag">DZD PRICING</span></li>
+          <li><b>Beachhead: labelled + funded.</b> Start with Algiers / Oran / Sétif / Constantine fintech, marketplaces, SaaS shipping CIB/EDAHABIA checkout in the next quarter. Then retainer per release.<span class="tag">WEDGE</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="products reveal" id="products">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Our Products</h2>
+      <p>Three scan modes, one dashboard, pick the surface you ship. Signed authorization every time.</p>
+    </div>
+    <div class="product-grid">
+      <div class="product-card"><span class="num mono">01 · WEBSITE SCAN</span><h3>Live URL audit</h3><p>ZAP + Nuclei + Nmap + testssl + Nikto + Headers + sensitive-files against your live URL, read-only, 15–25 min. Quality gate FAIL on XSS/SQLi, fix-first report.</p><p class="mono" style="margin-top:14px;font-size:.75rem;color:var(--orange-glow)">DAST · LIVE · READ-ONLY ↓ DETAIL BELOW</p></div>
+      <div class="product-card"><span class="num mono">02 · REPO SCAN</span><h3>Codebase audit</h3><p>Gitleaks secrets + Semgrep SAST with custom taint rules + OSV deps/CVEs + optional AI review. File + line evidence, CWE/OWASP tags, JSON + text report.</p><p class="mono" style="margin-top:14px;font-size:.75rem;color:var(--orange-glow)">SAST + SECRETS + SCA · SHALLOW CLONE</p></div>
+      <div class="product-card"><span class="num mono">03 · APK SCAN ★ NEXT</span><h3>Mobile static audit</h3><p>Manifest + exported components + dex secrets + crypto/network + permissions, static only, APK never executed. Same Finding model, same report pipeline.</p><p class="mono" style="margin-top:14px;font-size:.75rem;color:var(--orange-glow)">STATIC ONLY · PILOT SOON</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="engine reveal" id="engine">
+  <div class="wrap engine-grid">
+    <div>
+      <div class="section-head">
+        <h2>Product 01 in detail: the 8-Tentacle Engine</h2>
+        <p>Our Website Scan product, one orchestrator running eight specialized, non-disruptive scanners against your live URL, no agents to install, nothing deployed to your infrastructure. Hover each tool.</p>
+      </div>
+      <div id="engine-detail" class="mono">HOVER A TOOL → SEE WHAT IT SCANS</div>
+    </div>
+    <div class="radial" id="radial">
+      <svg class="wires" viewBox="0 0 100 100"><g stroke="rgba(255,106,44,0.22)" stroke-width="0.3">
+        <line x1="50" y1="50" x2="50" y2="22"/><line x1="50" y1="50" x2="70" y2="30"/><line x1="50" y1="50" x2="78" y2="50"/><line x1="50" y1="50" x2="70" y2="70"/><line x1="50" y1="50" x2="50" y2="78"/><line x1="50" y1="50" x2="30" y2="70"/><line x1="50" y1="50" x2="22" y2="50"/><line x1="50" y1="50" x2="30" y2="30"/>
+      </g></svg>
+      <div class="radial-center"><div class="core-pulse"></div><img src="assets/octoscan-mark.png" alt="OctoScan core"></div>
+      <div class="radial-list">
+        <div class="node has-logo" data-pos="0" data-info="WEB LOGIC, OWASP ZAP: OWASP Top 10 injection, auth & access checks"><span class="tool"><img src="Tools/zap.square.png" alt="OWASP ZAP"></span><span class="label"><b>Web Logic</b><span>OWASP ZAP</span></span></div>
+        <div class="node has-logo" data-pos="1" data-info="NETWORK PORTS, NMAP: open service exposure mapping"><span class="tool"><img src="Tools/images-removebg-preview.png" alt="NMAP"></span><span class="label"><b>Network Ports</b><span>NMAP</span></span></div>
+        <div class="node has-logo" data-pos="2" data-info="EXPOSED SECRETS, API keys, .env, .git hunting"><span class="tool"><img src="Tools/images-removebg-preview (1).clean.png" alt="Git secret scan"></span><span class="label"><b>Exposed Secrets</b><span>.env, .git</span></span></div>
+        <div class="node" data-pos="3" data-info="SSL / TLS, certificate, cipher & expiry checks"><span class="dot"></span><span class="label"><b>SSL / TLS</b><span>certificate & cipher checks</span></span></div>
+        <div class="node" data-pos="4" data-info="FORENSICS READY, incident-response baseline snapshot"><span class="dot"></span><span class="label"><b>Forensics Ready</b><span>IR baseline</span></span></div>
+        <div class="node has-logo" data-pos="5" data-info="DEPENDENCIES, known CVEs in your stack"><span class="tool"><img src="Tools/images__2_-removebg-preview.png" alt="Dependency scanner"></span><span class="label"><b>Dependencies</b><span>known CVEs</span></span></div>
+        <div class="node has-logo" data-pos="6" data-info="CLOUD / DNS, misconfiguration & takeover checks"><span class="tool"><img src="Tools/images__2_-removebg-preview (1).clean.png" alt="Cloud DNS scanner"></span><span class="label"><b>Cloud / DNS</b><span>misconfig checks</span></span></div>
+        <div class="node has-logo" data-pos="7" data-info="SECURITY HEADERS, CSP, HSTS, X-Frame-Options"><span class="tool wide"><img src="Tools/owasp.icon.png" alt="OWASP"></span><span class="label"><b>Security Headers</b><span>OWASP</span></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+  <section class="agent reveal" id="agent">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Scanners find noise. The agent delivers verdict.</h2>
+      <p>Eight engines flood us with raw findings, dedupe collapses the noise, then the OctoScan agent triages with NVIDIA Nemotron and writes the fix-first report.</p>
+    </div>
+    <div class="agent-map">
+      <svg class="agent-wires" viewBox="0 0 1000 340" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M335 110 C 420 110, 430 150, 505 155"/>
+        <path class="back" d="M335 230 C 420 230, 430 190, 505 185"/>
+        <path d="M495 155 C 570 150, 580 110, 665 110"/>
+        <path class="back" d="M495 185 C 570 190, 580 230, 665 230"/>
+      </svg>
+      <div class="agent-col">
+        <div class="col-kicker">◀ 8 SCANNERS IN</div>
+        <h3>Raw findings</h3>
+        <div class="scan-chips">
+          <span><b>ZAP</b>web vulns</span><span><b>Nuclei</b>CVEs</span>
+          <span><b>Nmap</b>ports</span><span><b>testssl</b>TLS</span>
+          <span><b>Nikto</b>paths</span><span><b>Headers</b>shield</span>
+          <span><b>Sensitive</b>.env/.git</span><span><b>Gate</b>verdict</span>
+        </div>
+        <span class="flow-tag">FINDINGS ──▶</span>
+      </div>
+      <div class="agent-hub">
+        <div class="hub-glow"></div>
+        <div class="hub-ring"></div>
+        <img class="agent-core" src="assets/octoscan-mark.png" alt="OctoScan agent, central hub">
+        <div class="hub-label">OCTOSCAN AGENT<small>TRIAGE · DEDUPE · VERDICT</small></div>
+        <div class="hub-flow"><span class="flow-tag">◀ DEDUPE</span><span class="flow-tag">REASON ▶</span></div>
+      </div>
+      <div class="agent-col">
+        <div class="col-kicker">AI BRAIN ▶</div>
+        <h3>NVIDIA Nemotron</h3>
+        <div class="nvidia-stack">
+          <img class="nemotron" src="assets/3-removebg-preview.png" alt="NVIDIA Nemotron 3 Ultra">
+          <img class="nvidia" src="assets/Untitled-removebg-preview.png" alt="NVIDIA">
+        </div>
+        <p class="nvidia-cap">Reasoning accelerated by<br>Nemotron 3 Ultra · local or BYO key</p>
+        <span class="flow-tag">◀── TRIAGE</span>
+      </div>
+    </div>
+    <div class="agent-steps">
+      <div><span class="mono">STEP 1 · NORMALIZE</span><b>Collapse the noise</b>CORS / per-URL / Nikto-noise dedupe → one signal per real issue.</div>
+      <div><span class="mono">STEP 2 · AGENT TRIAGE</span><b>Rank what matters</b>Nemotron reasons over impact + exploitability → Fix-first top-5.</div>
+      <div><span class="mono">STEP 3 · VERDICT</span><b>Prove it's fixed</b>Quality gate + re-scan loop → clean PDF for investors &amp; ASF.</div>
+    </div>
+  </div>
+  </section>
+
+  <section class="dash reveal" id="dashboard">
+  <div class="wrap dash-grid">
+    <div class="panel">
+      <div class="panel-head"><h4>Vulnerability breakdown</h4><div class="score-ring" id="score-ring"><div class="inner" id="score-num">0%</div></div></div>
+      <figure class="dash-shot">
+        <img src="assets/photo_2026-09-27_15-04-28.jpg" alt="OctoScan live console, pre-launch security checks, severity and scanner coverage" loading="lazy">
+      </figure>
+      <div style="margin-top:24px;border-top:1px solid var(--line);padding-top:6px">
+        <div class="feed-item"><span class="sev">CRIT</span><span class="desc">CVE-2023-2223 in dependency</span><span class="view">View steps</span></div>
+        <div class="feed-item"><span class="sev">HIGH</span><span class="desc">Missing CSP header on /checkout</span><span class="view">View steps</span></div>
+        <div class="feed-item"><span class="sev">HIGH</span><span class="desc">.env reachable at build root</span><span class="view">View steps</span></div>
+      </div>
+    </div>
+    <div class="dash-copy">
+      <h2>See exactly what's exposed, and what's fixed</h2>
+      <p>Every finding comes with a plain-language explanation of the business impact and the exact steps to close it. Nothing gets marked done until you've re-verified it.</p>
+      <ul>
+        <li>Severity-ranked, plain language, no raw scanner logs</li>
+        <li>Fixed-vs-open tracker across every scan</li>
+        <li>Exportable PDF report for investors and clients</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="how reveal" id="how">
+  <div class="wrap">
+    <div class="section-head"><h2>Three steps, one live URL</h2></div>
+    <div class="steps">
+      <div class="step"><span class="num mono">01</span><h3>Scan</h3><p>Drop in your live URL. OctoScan runs all eight scanners against it, read-only, nothing installed on your infrastructure.</p></div>
+      <div class="step"><span class="num mono">02</span><h3>Review</h3><p>Get a severity-ranked, plain-language dashboard, built for founders, not just the engineer who wrote the code.</p></div>
+      <div class="step"><span class="num mono">03</span><h3>Fix</h3><p>Work through the tracker, mark issues fixed, and export a clean PDF report when you're ready to show it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="integrity reveal">
+  <div class="wrap integrity-grid">
+    <div>
+      <p class="statement">Every scan runs under a <span class="dim">formal, signed legal consent form</span>, safe against staging or production, with zero code modifications and nothing left behind.</p>
+      <p class="fine">OCTOSEC LABS · AUTHORIZATION REQUIRED BEFORE ANY SCAN</p>
+    </div>
+    <div class="auth-shot" aria-hidden="true">
+      <div class="doc-card">
+        <div class="doc-top">
+          <img src="assets/octoscan-mark.png" alt="">
+          <div class="doc-brand"><b>OCTOSEC LABS</b><span>OctoScan · Automated Security Precheck</span></div>
+        </div>
+        <div class="doc-title">SCAN AUTHORIZATION AGREEMENT</div>
+        <div class="doc-sub">Pre-launch security assessment performed with the OctoScan platform</div>
+        <div class="doc-h">1. PARTIES</div>
+        <p class="doc-p"><b>Service provider:</b> OctoSec Labs, a student-led security research team at ENCS (École Nationale Supérieure en Cybersécurité), Algeria, operating the OctoScan automated scanning platform.</p>
+        <p class="doc-p" style="margin-top:6px"><b>Client (company / project name):</b> <span class="doc-line">&nbsp;</span></p>
+        <p class="doc-p"><b>Authorized representative (name, role):</b> <span class="doc-line">&nbsp;</span></p>
+        <div class="doc-h">2. SCOPE OF THE SCAN</div>
+        <p class="doc-p"><b>Target(s) in scope (exact URL(s) only):</b> <span class="doc-line">&nbsp;</span></p>
+        <p class="doc-p" style="margin-top:4px">OctoSec Labs will run automated, black-box security checks against the listed target(s) only, using the OctoScan platform. The scan includes:</p>
+        <ul class="doc-ul">
+          <li>Network and open-port scanning of the listed target</li>
+          <li>TLS/SSL configuration review</li>
+          <li>HTTP security header and cookie configuration review</li>
+          <li>Automated web application scanning for common vulnerability classes (e.g. XSS, SQL injection, CSRF, CORS misconfiguration), using standard scanner payloads only</li>
+          <li>Checks for exposed sensitive files (e.g. backups, config files, credentials) that are already publicly reachable</li>
+        </ul>
+        <p class="doc-p" style="margin-top:8px;color:#8a3c14"><b style="color:#8a3c14">OctoSec Labs will NOT:</b></p>
+        <ul class="doc-ul">
+          <li>Access, copy, modify, or delete any client data beyond what is necessary to demonstrate a finding</li>
+          <li>Perform denial-of-service testing or anything that could disrupt normal service availability</li>
+          <li>Test any system, subdomain, or asset not explicitly listed above</li>
+          <li>Use manual exploitation beyond what the OctoScan automated scanners perform by default</li>
+          <li>Share findings with any third party without the client's written consent</li>
+        </ul>
+        <div class="doc-h">3. DATA HANDLING</div>
+        <p class="doc-p">Scan results are stored securely within OctoScan and are accessible only to OctoSec Labs team members working on this engagement. Results will not be shared, published, or referenced publicly without the client's separate written permission. The client may request deletion of their scan data at any time.</p>
+        <div class="doc-foot"><span>SIGNED BEFORE ANY SCAN</span><span>PAGE 01 · PREVIEW</span></div>
+      </div>
+      <div class="auth-cap">SIGNED AUTHORIZATION, DOCUMENT PREVIEW</div>
+    </div>
+  </div>
+</section>
+
+<section class="cta reveal" id="cta">
+  <div class="wrap">
+    <h2>Know before you launch.</h2>
+    <p>Two pilot slots open for Algerian teams shipping in the next quarter, labelled or going for the label, CIB / EDAHABIA or not.</p>
+    <a href="#" class="btn-primary magnetic" data-open-pilot>Request the pilot scan</a>
+    <div class="mono-small">ZERO-DISRUPTION · READ-ONLY · CONSENT-SIGNED</div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-brand"><img src="assets/octoscan-mark.png" alt=""><span>a product of OctoSec Labs</span></div>
+    <div class="links"><a href="#problem">Problem</a><a href="#market">Market</a><a href="#products">Our Products</a><a href="#engine">Website Scanner</a><a href="#agent">AI Agent</a><a href="#dashboard">Dashboard</a><a href="#cta">Contact</a></div>
+  </div>
+</footer>
+
+<div class="panel-overlay" id="pilot-overlay"></div>
+<aside class="side-panel" id="pilot-panel" role="dialog" aria-modal="true" aria-labelledby="pilot-title" aria-hidden="true">
+  <div class="side-head">
+    <div>
+      <h3 id="pilot-title">Request the pilot scan</h3>
+      <p>Drop your details, we reply with a scoped, consent-signed pilot slot.</p>
+    </div>
+    <button class="side-close" id="pilot-close" aria-label="Close panel">✕</button>
+  </div>
+  <form id="pilot-form" class="side-body" novalidate>
+    <label for="pf-name">Full name</label>
+    <input id="pf-name" name="name" type="text" placeholder="Your name" required autocomplete="name">
+    <label for="pf-email">Work email</label>
+    <input id="pf-email" name="email" type="email" placeholder="you@company.com" required autocomplete="email">
+    <label for="pf-company">Company / project</label>
+    <input id="pf-company" name="company" type="text" placeholder="Company or project name" autocomplete="organization">
+    <label for="pf-url">Live URL to scan</label>
+    <input id="pf-url" name="target_url" type="url" placeholder="https://yourapp.com" required inputmode="url">
+    <label for="pf-timeline">Launch timeline</label>
+    <select id="pf-timeline" name="timeline">
+      <option>Shipping in the next quarter</option>
+      <option>Shipping this month</option>
+      <option>Already live, pre-audit</option>
+      <option>Just exploring</option>
+    </select>
+    <label for="pf-notes">Anything we should know? (optional)</label>
+    <textarea id="pf-notes" name="message" placeholder="Stack, hosting, staging vs production…"></textarea>
+    <label class="consent"><input type="checkbox" id="pf-consent" required><span>I authorize OctoSec Labs to run a read-only, non-disruptive scan against the URL above once a signed authorization is agreed.</span></label>
+    <input type="text" name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+    <input type="hidden" name="_subject" value="New OctoScan pilot request">
+    <div class="form-err" id="pilot-err"></div>
+    <div class="form-ok" id="pilot-ok">Request received, check your inbox, we reply fast.</div>
+  </form>
+  <div class="side-foot">
+    <button class="btn-primary magnetic" id="pilot-submit" type="submit" form="pilot-form">Send pilot request</button>
+    <div class="side-note">READ-ONLY · ZERO-DISRUPTION · CONSENT-SIGNED</div>
+  </div>
+</aside>
+
+<script>
+// ---- Formspree config: paste your form ID below (Formspree dashboard → Forms → your form → endpoint) ----
+const FORMSPREE_FORM_ID = "YOUR_FORMSPREE_ID";
+// typed terminal - SmoothUI typewriter
+const cmd='octoscan scan https://yourapp.com --8-tentacles --read-only';
+let ti=0;const typedEl=document.getElementById('typed');
+(function type(){if(ti<=cmd.length){typedEl.textContent=cmd.slice(0,ti++);setTimeout(type,42)}})();
+
+// marquee duplicate for seamless loop
+const track=document.getElementById('marquee-track');track.innerHTML+=track.innerHTML;
+
+// scramble hover - SmoothUI ScrambleHover
+const chars='!<>-_\\/[]{}—=+*^?#';
+document.querySelectorAll('[data-scramble]').forEach(el=>{
+  const orig=el.textContent;let iv=null;
+  el.addEventListener('mouseenter',()=>{
+    let it=0;clearInterval(iv);
+    iv=setInterval(()=>{
+      el.textContent=orig.split('').map((c,i)=>i<it?c:chars[Math.floor(Math.random()*chars.length)]).join('');
+      if(++it>orig.length)clearInterval(iv);
+    },28);
+  });
+  el.addEventListener('mouseleave',()=>{clearInterval(iv);el.textContent=orig});
+});
+
+// custom cursor + magnetic - SmoothUI CursorFollow
+const dot=document.getElementById('cursor'),ring=document.getElementById('cursor-ring');
+let mx=innerWidth/2,my=innerHeight/2,rx=mx,ry=my;
+addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;dot.style.left=mx+'px';dot.style.top=my+'px'});
+(function loop(){rx+=(mx-rx)*.16;ry+=(my-ry)*.16;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(loop)})();
+document.querySelectorAll('a,button,.node,.radial-center').forEach(el=>{
+  el.addEventListener('mouseenter',()=>ring.classList.add('hovering'));
+  el.addEventListener('mouseleave',()=>ring.classList.remove('hovering'));
+});
+document.querySelectorAll('.magnetic').forEach(btn=>{
+  btn.addEventListener('mousemove',e=>{const r=btn.getBoundingClientRect();btn.style.transform=`translate(${(e.clientX-r.left-r.width/2)*.18}px,${(e.clientY-r.top-r.height/2)*.18}px)`});
+  btn.addEventListener('mouseleave',()=>btn.style.transform='');
+});
+
+// particles - MagicUI
+const cv=document.getElementById('bg-canvas'),ctx=cv.getContext('2d');let pts=[];
+function resize(){cv.width=innerWidth;cv.height=innerHeight}
+resize();addEventListener('resize',resize);
+for(let i=0;i<70;i++)pts.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.4});
+(function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  pts.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.x<0||p.x>cv.width)p.vx*=-1;if(p.y<0||p.y>cv.height)p.vy*=-1;
+    ctx.fillStyle='rgba(255,106,44,.7)';ctx.beginPath();ctx.arc(p.x,p.y,1.4,0,7);ctx.fill()});
+  for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){
+    const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.hypot(dx,dy);
+    if(d<130){ctx.strokeStyle=`rgba(255,106,44,${(1-d/130)*.18})`;ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.stroke()}}
+  requestAnimationFrame(draw);
+})();
+
+// reveal on scroll
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+// score count-up
+const dashIO=new IntersectionObserver(es=>es.forEach(e=>{
+  if(!e.isIntersecting)return;
+  let n=0;const num=document.getElementById('score-num'),ringEl=document.getElementById('score-ring');
+  const c=setInterval(()=>{n+=2;if(n>=85){n=85;clearInterval(c)}num.textContent=n+'%';ringEl.style.background=`conic-gradient(var(--orange) ${n}%, rgba(255,255,255,.08) 0)`},28);
+  dashIO.disconnect();
+}),{threshold:.35});
+dashIO.observe(document.getElementById('dashboard'));
+
+// engine hover detail
+const detail=document.getElementById('engine-detail');
+document.querySelectorAll('.node').forEach(n=>{
+  n.addEventListener('mouseenter',()=>{
+    document.querySelectorAll('.node').forEach(x=>x.classList.remove('active'));
+    n.classList.add('active');detail.textContent=n.dataset.info;
+  });
+});
+
+// THE exact hero logo becomes the pet, then lands home - single rAF, no snaps
+const heroLogo=document.getElementById('octoHero');
+const heroHome=document.getElementById('heroHome');
+let mode='home', t=0, mouseNX=0;
+let petX=0, petY=0, petTargetX=0, petTargetY=0, petRot=0, petOpacity=1, petTargetOpacity=1;
+let placeholder=null, homeBob=0;
+function ensurePlaceholder(){
+  if(!placeholder){
+    placeholder=document.createElement('div');
+    placeholder.id='heroPlaceholder';
+    heroHome.appendChild(placeholder);
+  }
+  return placeholder.getBoundingClientRect();
+}
+function petTargets(){
+  const h=document.documentElement.scrollHeight-innerHeight;
+  const p=h>0?Math.min(1,Math.max(0,scrollY/h)):0;
+  petTargetY=innerHeight*0.22+p*(innerHeight*0.38);
+  const sweepRight=innerWidth-300, sweepLeft=20;
+  petTargetX=sweepRight+(sweepLeft-sweepRight)*p+Math.sin(p*Math.PI*2)*40+mouseNX*50;
+  petTargetOpacity=.16;
+  // glow up behind the products section so the traveller reads through it
+  const prod=document.getElementById('products');
+  if(prod){const r=prod.getBoundingClientRect();if(r.top<innerHeight*.7&&r.bottom>innerHeight*.3)petTargetOpacity=.5}
+}
+function setMode(){
+  const shouldBePet=scrollY>320;
+  if(shouldBePet&&(mode==='home')){
+    const r=heroLogo.getBoundingClientRect();
+    mode='pet';
+    ensurePlaceholder();
+    heroHome.classList.add('empty');
+    document.body.appendChild(heroLogo);
+    heroLogo.classList.add('pet-mode');
+    petX=r.left; petY=r.top; petOpacity=parseFloat(getComputedStyle(heroLogo).opacity)||1;
+    petTargets();
+  }else if(!shouldBePet&&(mode==='pet')){
+    mode='landing';
+  }
+  if(mode==='pet')petTargets();
+}
+addEventListener('scroll',setMode,{passive:true});
+addEventListener('resize',()=>{if(mode==='pet')petTargets()},{passive:true});
+addEventListener('mousemove',e=>{mouseNX=(e.clientX/innerWidth-.5); petRot=mouseNX*12;},{passive:true});
+setMode();
+(function loop(){
+  t+=0.016;
+  if(mode==='home'){
+    homeBob=Math.sin(t*1.6)*11;
+    heroLogo.style.transform=`translateY(${homeBob}px)`;
+    heroLogo.style.opacity='1';
+  }else{
+    if(mode==='landing'){
+      const hr=ensurePlaceholder();
+      petTargetX=hr.left; petTargetY=hr.top; petTargetOpacity=1;
+    }
+    petX+=(petTargetX-petX)*0.075;
+    petY+=(petTargetY-petY)*0.075;
+    petOpacity+=(petTargetOpacity-petOpacity)*0.08;
+    petRot+=(mouseNX*12-petRot)*0.06;
+    const bob=Math.sin(t*1.8)*12, sway=Math.cos(t*1.2)*9;
+    heroLogo.style.transform=`translate(${petX+sway}px,${petY-innerHeight*0.3+bob}px) rotate(${petRot+Math.sin(t)*3}deg)`;
+    heroLogo.style.opacity=petOpacity.toFixed(3);
+    if(mode==='landing'){
+      const hr=placeholder.getBoundingClientRect();
+      const dx=Math.abs(petX-hr.left), dy=Math.abs(petY-hr.top);
+      if(dx<3&&dy<3&&Math.abs(petOpacity-1)<0.03){
+        heroHome.appendChild(heroLogo);
+        heroLogo.classList.remove('pet-mode');
+        heroHome.classList.remove('empty');
+        if(placeholder){placeholder.remove(); placeholder=null;}
+        heroLogo.style.transform=''; heroLogo.style.opacity='';
+        mode='home'; t=0;
+      }
+    }
+  }
+  requestAnimationFrame(loop);
+})();
+
+// left rail appears on scroll down as section indicator, top bar always stays visible
+(function(){
+  const rail=document.getElementById('side-rail');
+  if(!rail||matchMedia('(hover: none)').matches) return;
+  let lastY=scrollY,ticking=false;
+  function update(){
+    ticking=false;
+    const y=scrollY;
+    if(y>200&&y>lastY+4){document.body.classList.add('railed');rail.setAttribute('aria-hidden','false')}
+    else if(y<lastY-4||y<=200){document.body.classList.remove('railed');rail.setAttribute('aria-hidden','true')}
+    lastY=y;
+    // active section highlight
+    const ids=['problem','market','products','engine','agent','dashboard','how'];
+    let cur='';
+    ids.forEach(id=>{const el=document.getElementById(id);if(el&&el.getBoundingClientRect().top<innerHeight*.4)cur=id});
+    rail.querySelectorAll('a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+cur));
+  }
+  addEventListener('scroll',()=>{if(!ticking){ticking=true;requestAnimationFrame(update)}},{passive:true});
+  update();
+})();
+
+// pilot request side panel + Formspree submit
+(function(){
+  const panel=document.getElementById('pilot-panel');
+  const overlay=document.getElementById('pilot-overlay');
+  const form=document.getElementById('pilot-form');
+  const err=document.getElementById('pilot-err');
+  const ok=document.getElementById('pilot-ok');
+  const submitBtn=document.getElementById('pilot-submit');
+  if(!panel||!overlay||!form) return;
+  function open(){
+    panel.classList.add('open');overlay.classList.add('open');
+    panel.setAttribute('aria-hidden','false');
+    document.body.style.overflow='hidden';
+    setTimeout(()=>{const f=document.getElementById('pf-name');if(f)f.focus()},120);
+  }
+  function close(){
+    panel.classList.remove('open');overlay.classList.remove('open');
+    panel.setAttribute('aria-hidden','true');
+    document.body.style.overflow='';
+  }
+  document.querySelectorAll('[data-open-pilot]').forEach(a=>{
+    a.addEventListener('click',e=>{e.preventDefault();err.style.display='none';ok.style.display='none';open()});
+  });
+  document.getElementById('pilot-close').addEventListener('click',close);
+  overlay.addEventListener('click',close);
+  addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    err.style.display='none';ok.style.display='none';
+    if(!form.checkValidity()){form.reportValidity();return}
+    if(!document.getElementById('pf-consent').checked){err.textContent='Please tick the scan authorization box.';err.style.display='block';return}
+    // No Formspree ID yet → fall back to mailto so the demo never dead-ends
+    if(!FORMSPREE_FORM_ID||FORMSPREE_FORM_ID==='YOUR_FORMSPREE_ID'){
+      const name=document.getElementById('pf-name').value;
+      const email=document.getElementById('pf-email').value;
+      const company=document.getElementById('pf-company').value;
+      const url=document.getElementById('pf-url').value;
+      const timeline=document.getElementById('pf-timeline').value;
+      const notes=document.getElementById('pf-notes').value;
+      const subject=encodeURIComponent('[OctoScan] Pilot request, '+(company||name));
+      const body=encodeURIComponent('Name: '+name+'\nEmail: '+email+'\nCompany: '+company+'\nURL: '+url+'\nTimeline: '+timeline+'\nNotes: '+notes+'\n\nI authorize OctoSec Labs to run a read-only, non-disruptive scan once a signed authorization is agreed.');
+      location.href='mailto:hello@octoscan.dev?subject='+subject+'&body='+body;
+      ok.textContent='Opening your email client, send it and we reply fast.';
+      ok.style.display='block';return;
+    }
+    submitBtn.disabled=true;submitBtn.textContent='Sending…';
+    try{
+      const res=await fetch('https://formspree.io/f/'+FORMSPREE_FORM_ID,{
+        method:'POST',body:new FormData(form),headers:{'Accept':'application/json'}
+      });
+      if(res.ok){form.reset();ok.style.display='block';setTimeout(close,1800)}
+      else{const d=await res.json().catch(()=>({}));err.textContent=(d.errors&&d.errors[0]&&d.errors[0].message)||'Something went wrong, try again or email hello@octoscan.dev.';err.style.display='block'}
+    }catch(_){err.textContent='Network error, try again or email hello@octoscan.dev.';err.style.display='block'}
+    submitBtn.disabled=false;submitBtn.textContent='Send pilot request';
+  });
+})();
+</script>
+</body>
+</html>
