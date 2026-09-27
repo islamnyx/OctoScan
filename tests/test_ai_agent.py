@@ -255,3 +255,21 @@ def test_api_get_unknown_and_invalid_ids(client):
 def test_api_caps_concurrent_runs(client, monkeypatch):
     monkeypatch.setattr(ai_agent, "running_count", lambda: ai_agent.MAX_RUNNING)
     assert client.post("/api/agent-scan", json={"repo_url": REPO}).status_code == 429
+
+
+def test_never_ready_with_unconfirmed_high_findings(env, monkeypatch):
+    # AI triage down -> every item "review"; story (wrongly) says ready.
+    monkeypatch.setattr(ai_agent, "_triage_mod", SimpleNamespace(triage=lambda b, w: [
+        {"finding_id": x.id, "verdict": "review", "confidence": 0.0, "reason": "AI unavailable"} for x in b]))
+    monkeypatch.setattr(ai_agent, "_story_mod", SimpleNamespace(
+        attack_story=lambda real, target: {"verdict": "ready", "blockers": [], "attack_story": ""}))
+    d = run_sync()
+    assert d["verdict"] == "not_ready" and "human review" in d["blockers"][-1]
+
+
+def test_prefilter_keeps_code_findings_when_deps_flood(env):
+    many = [f(f"osv{i}", "osv", Severity.critical, rel="package-lock.json", line=None, scope="runtime")
+            for i in range(60)]
+    env.state["decisions"]["prefilter"] = {"thought": "t", "tool": "prefilter", "args": {"limit": 30}}
+    kept = ai_agent._Agent(AgentRun(repo_url=REPO)).do_prefilter(many + FINDINGS)
+    assert len(kept) == 30 and {"eval1", "fp1"} <= {x.id for x in kept}

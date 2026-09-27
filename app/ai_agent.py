@@ -103,6 +103,7 @@ class _StubTriage:
         for f in findings:
             code = f.scanner in ai_fix.CODE_SCANNERS and f.severity in (
                 Severity.critical, Severity.high, Severity.medium)
+            code = code or (f.scanner == "osv" and f.severity in (Severity.critical, Severity.high))
             out.append({"finding_id": f.id, "verdict": "real" if code else "review",
                         "confidence": 0.5 if code else 0.3,
                         "reason": "rule-based stand-in: AI triage module not merged yet"})
@@ -363,13 +364,22 @@ class _Agent:
             limit = PREFILTER_MAX
         limit = max(PREFILTER_MIN, min(PREFILTER_MAX, limit))
         st = self.step("prefilter", thought, {"limit": limit})
+        # Code and dependency findings are prefiltered separately: NodeGoat's
+        # 92 runtime OSV rows would otherwise fill all 30 slots and leave
+        # nothing patchable. Code gets >= 2/3 of the slots when it has them.
+        code = [f for f in findings if f.scanner != "osv"]
+        deps = [f for f in findings if f.scanner == "osv"]
         try:
-            kept = list(_triage_fn("prefilter")(findings, limit=limit))
+            kept_code = list(_triage_fn("prefilter")(code, limit=limit))
+            kept_deps = list(_triage_fn("prefilter")(deps, limit=limit))
         except Exception as exc:
             log.warning("prefilter failed, using stand-in: %s", exc)
-            kept = _StubTriage.prefilter(findings, limit=limit)
-        self.done(st, f"{len(findings)} -> {len(kept)} findings (dropped {dev} dev-only, {fixtures} test "
-                      f"fixtures, info rows; kept top {limit})")
+            kept_code = _StubTriage.prefilter(code, limit=limit)
+            kept_deps = _StubTriage.prefilter(deps, limit=limit)
+        n_code = min(len(kept_code), max(limit * 2 // 3, limit - len(kept_deps)))
+        kept = kept_code[:n_code] + kept_deps[:limit - n_code]
+        self.done(st, f"{len(findings)} -> {len(kept)} findings ({n_code} code + {len(kept) - n_code} dependency; "
+                      f"dropped {dev} dev-only, {fixtures} test fixtures, info rows)")
         return kept
 
     def _row(self, f: Finding, item: dict) -> AgentFinding:
@@ -503,7 +513,9 @@ class _Agent:
                     for f in cands:
                         if f.id != chosen.id and by_id[f.id].file == row.file and ai_fix.rule_of(f) == fix.rule:
                             closed.add(f.id)
-            elif fix.verified is None and (fix.diff or fix.note.startswith(("AI unavailable", "not a patchable"))):
+            elif fix.note.startswith("AI unavailable"):
+                break  # every provider is down: more patch attempts would fail the same way
+            elif fix.verified is None and (fix.diff or fix.note.startswith("not a patchable")):
                 closed.add(chosen.id)  # retrying cannot change the outcome
         # Dependency findings: advice only, honestly not verifiable by a code re-scan.
         deps = [f for f in real if f.scanner == "osv"][:MAX_DEP_ADVICE]
@@ -541,9 +553,16 @@ class _Agent:
             out = {**_StubStory.attack_story(real, self.run.repo_url), **{
                 k: v for k, v in out.items() if k == "attack_story" and v}}
             verdict = out["verdict"]
+        blockers = [str(b)[:300] for b in (out.get("blockers") or [])][:10]
+        # Never "ready" while critical/high findings are unconfirmed (AI down,
+        # low confidence): a human must look first.
+        unsure = [r for r in self.run.findings if r.verdict == "review" and r.severity in ("critical", "high")]
+        if verdict == "ready" and unsure:
+            verdict = "not_ready"
+            blockers.append(f"{len(unsure)} critical/high finding(s) need human review (AI could not confirm them)")
         with _LOCK:
             self.run.verdict = verdict
-            self.run.blockers = [str(b)[:300] for b in (out.get("blockers") or [])][:10]
+            self.run.blockers = blockers
             self.run.attack_story = str(out.get("attack_story") or "")[:5000]
         self.done(st, f"verdict {verdict}: {len(self.run.blockers)} blocker(s)")
 
