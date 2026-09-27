@@ -17,13 +17,14 @@ the dashboard says so next to the AI config.
 """
 from __future__ import annotations
 
-import json
 import re
 import time
+from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
 
 from app import ai as ai_layer
+from app import ai_core as ai_layer_core
 from app.config import settings
 from app.models import Finding, Severity
 from app.repo import is_vendored, iter_repo_files
@@ -75,6 +76,17 @@ XSS_SINK_RE = re.compile(
     re.I,
 )
 
+# Extra window anchors for _excerpt: Express/Flask/Spring route handlers
+# and Node request input (USER_INPUT_RE is PHP/Python-centric).
+WINDOW_HINT_RE = re.compile(
+    r"(\b(app|router)\.(get|post|put|patch|delete|all|use)\s*\(|@app\.route|"
+    r"@(Get|Post|Put|Delete|Request)Mapping|req\.(body|query|params|cookies|headers)|"
+    r"\$_(GET|POST|REQUEST|COOKIE)|request\.(GET|POST|args|form|json))",
+    re.I,
+)
+EXCERPT_CAP = 8_000  # chars per file sent to the model
+WINDOW_RADIUS = 15  # lines around each anchor (~30-line windows)
+
 SEV_MAP = {
     "critical": Severity.critical,
     "high": Severity.high,
@@ -103,6 +115,9 @@ REVIEW_SYSTEM = (
     "deserialization, race conditions, missing validation). Cross-reference "
     "files (routes -> handlers -> models) before deciding. Ignore style. "
     "Do not invent issues that the code does not show. "
+    'Each code line starts with its line number ("12: code"); use that '
+    'number for "line". "…" marks lines not sent. [REDACTED] marks a secret '
+    "literal removed before review: still report it as a hardcoded secret. "
     "Reply with a JSON array only, each item: "
     '{"file": "<path as given>", "title": "...", "severity": '
     '"critical|high|medium|low|info", "line": 12, "description": "...", '
@@ -111,28 +126,61 @@ REVIEW_SYSTEM = (
 )
 
 
-def _excerpt(path: Path, per_file_cap: int = 20_000) -> str:
+def _excerpt(path: Path, per_file_cap: int = EXCERPT_CAP) -> str:
+    """Line-numbered code for the prompt ("12: code").
+
+    Small files go whole. Bigger ones send only ~30-line windows around
+    sinks, user input and route handlers (AGENTS.md: small windows, not
+    whole files), then the file head if nothing matched. Secrets are
+    redacted later by app.ai_core on every outgoing message.
+    """
     try:
-        text = path.read_text(errors="ignore")
+        lines = path.read_text(errors="ignore").splitlines()
     except Exception:
         return ""
-    if len(text) <= per_file_cap:
-        return text
-    head = per_file_cap * 2 // 3
-    tail = per_file_cap - head
-    return text[:head] + f"\n… [truncated {len(text) - per_file_cap} chars] …\n" + text[-tail:]
+    numbered = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
+    whole = "\n".join(numbered)
+    if len(whole) <= per_file_cap:
+        return whole
+    hits = [
+        i for i, line in enumerate(lines)
+        if SINK_CALL_RE.search(line) or XSS_SINK_RE.search(line) or WINDOW_HINT_RE.search(line)
+    ]
+    spans: list[list[int]] = []
+    for i in hits:
+        lo, hi = max(0, i - WINDOW_RADIUS), min(len(lines), i + WINDOW_RADIUS + 1)
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    if not spans:
+        spans = [[0, len(lines)]]
+    out: list[str] = []
+    size = 0
+    for lo, hi in spans:
+        if lo > 0 and (not out or out[-1] != "…"):
+            out.append("…")
+        for i in range(lo, hi):
+            if size + len(numbered[i]) > per_file_cap:
+                out.append(f"… [{len(lines) - i} more lines not sent]")
+                return "\n".join(out)
+            out.append(numbered[i])
+            size += len(numbered[i]) + 1
+    if spans[-1][1] < len(lines):
+        out.append("…")
+    return "\n".join(out)
+
+
+def _parse_json_array(reply: str) -> list:
+    """Any JSON array in a model reply (<think>/fences handled), else []."""
+    try:
+        return ai_layer_core.parse_json_loose(reply, want=list)
+    except ValueError:
+        return []
 
 
 def _parse_review_reply(reply: str) -> list[dict]:
-    start = reply.find("[")
-    end = reply.rfind("]")
-    if start == -1 or end <= start:
-        return []
-    try:
-        items = json.loads(reply[start : end + 1])
-    except Exception:
-        return []
-    return [i for i in items if isinstance(i, dict)]
+    return [i for i in _parse_json_array(reply) if isinstance(i, dict)]
 
 
 def _chat_once(messages: list[dict[str, str]], cfg: dict[str, str], max_tokens: int) -> str:
@@ -141,6 +189,7 @@ def _chat_once(messages: list[dict[str, str]], cfg: dict[str, str], max_tokens: 
         cfg=cfg,
         max_tokens=max_tokens,
         temperature=0.1,
+        purpose="review",
     )
 
 
@@ -302,8 +351,10 @@ def nominate_files(
         return []
     known = {_norm_rel(rel): rel for _p, _s, rel in entries}
     picked: list[str] = []
-    for item in _parse_review_reply(reply):
-        if not isinstance(item, str):
+    for item in _parse_json_array(reply):
+        if isinstance(item, dict):
+            item = item.get("path") or item.get("file") or ""
+        if not isinstance(item, str) or not item.strip():
             continue
         key = _norm_rel(item)
         # exact match first, then unique suffix match (model may prefix repo name)
@@ -343,6 +394,9 @@ def review_codebase(
                 pass
 
     cfg = ai_layer.load_config()
+    # Calls recorded from here on belong to this review (manifest honesty:
+    # name the models that actually answered, incl. fallbacks).
+    since = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if model:
         cfg["model"] = model
     if not (cfg.get("base_url") and cfg.get("model")):
@@ -380,7 +434,7 @@ def review_codebase(
     total = 0
     for rel in queued:
         p, size = by_rel[rel]
-        cost = min(size, 20_000)
+        cost = min(size, EXCERPT_CAP)
         if total + cost > max_bytes and final_rels:
             break
         final_rels.append(rel)
@@ -400,7 +454,7 @@ def review_codebase(
     cur: list[str] = []
     cur_chars = 0
     for rel in final_rels:
-        cost = min(by_rel[rel][1], 20_000)
+        cost = min(by_rel[rel][1], EXCERPT_CAP)
         if cur and (len(cur) >= batch_files or cur_chars + cost > batch_chars):
             batches.append(cur)
             cur, cur_chars = [], 0
@@ -507,7 +561,7 @@ def review_codebase(
             per_file_counts[rel] = per_file_counts.get(rel, 0) + 1
         for rel in batch:
             manifest.append(
-                f"{rel}: read {min(by_rel[rel][1], 20_000)} chars in {dt:.1f}s "
+                f"{rel}: read {min(by_rel[rel][1], EXCERPT_CAP)} chars in {dt:.1f}s "
                 f"(attempts={attempts}, waited={waited:.0f}s) -> {per_file_counts.get(rel, 0)} vuln(s)"
             )
         # Pace batches: back-to-back big calls blow free-tier token/min
@@ -535,20 +589,25 @@ def review_codebase(
         )
     # Always attach the manifest + model id: what was actually read.
     failed = [m for m in manifest if "FAILED" in m]
+    used = ai_layer_core.stats(since)
+    via = ", ".join(used["models"]) or f"{cfg.get('provider', '')}/{cfg.get('model', '')}"
+    if used["fallback_used"]:
+        via += " (fallback)"
     findings.append(
         Finding(
             scanner="ai-code-review",
             title=(
                 f"AI review manifest: {len(final_rels)} file(s) sampled, "
-                f"{total_chars} chars read via {cfg.get('provider', '')}/{cfg.get('model', '')} "
+                f"{total_chars} chars read via {via} "
                 f"({vuln_count} vuln(s), {len(failed)} failed)"
             ),
             severity=Severity.info,
             description="Per-file audit trail:\n" + "\n".join(manifest)[:2500],
             location=repo_url or str(root),
-            raw={"manifest": manifest, "model": cfg.get("model", ""),
+            raw={"manifest": manifest, "model": ", ".join(used["models"]) or cfg.get("model", ""),
+                  "configured_model": cfg.get("model", ""),
                   "provider": cfg.get("provider", ""), "chars_read": total_chars,
-                  "nominated": nominated},
+                  "fallback_used": used["fallback_used"], "nominated": nominated},
         )
     )
     return findings

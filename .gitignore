@@ -5,6 +5,7 @@ __pycache__/
 data/scans/
 data/repos/
 data/ai_config.json
+data/ai_calls.jsonl
 .ZAP/
 .kilo/
 resources/
