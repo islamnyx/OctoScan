@@ -336,7 +336,8 @@ def fix_finding(f: Finding, workdir: Path, run_dir: Path, *, hint: str = "", att
     (fix_dir / "after" / rel).write_text("".join(patched))
     verified, note = verify(f, fix_dir)
     return base.model_copy(update={
-        "diff": unified_diff(lines, patched, rel),
+        # Secrets stay masked in the API/UI too (removed "-" lines included).
+        "diff": ai_core.redact(unified_diff(lines, patched, rel))[0],
         "explanation": reply.explanation,
         "verified": verified,
         "note": note,

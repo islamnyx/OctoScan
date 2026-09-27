@@ -53,7 +53,7 @@
         "attempt": 1
       },
       "status": "done",
-      "ms": 3120
+      "ms": 2667
     },
     {
       "n": 5,
@@ -79,7 +79,7 @@
         "attempt": 1
       },
       "status": "done",
-      "ms": 1767
+      "ms": 1743
     },
     {
       "n": 7,
@@ -106,7 +106,7 @@
         "hint": "replace the whole return { ... }; block, lines 77-79 Last attempt: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)"
       },
       "status": "done",
-      "ms": 1731
+      "ms": 1768
     },
     {
       "n": 9,
@@ -132,7 +132,7 @@
         "attempt": 1
       },
       "status": "done",
-      "ms": 400
+      "ms": 405
     },
     {
       "n": 11,
@@ -526,7 +526,7 @@
     },
     {
       "finding_id": "e5cb777da84d",
-      "diff": "--- a/config/env/development.js\n+++ b/config/env/development.js\n@@ -3,7 +3,7 @@\n    zapHostName: \"192.168.56.20\",\n    zapPort: \"8080\",\n    // Required from Zap 2.4.1. This key is set in Zap Options -> API _Api Key.\n-   zapApiKey: \"v9dn0balpqas1pcc281tn5ood1\",\n+   zapApiKey: process.env.ZAP_API_KEY,\n    // Required if debugging security regression tests.\n    zapApiFeedbackSpeed: 5000, // Milliseconds.\n    environmentalScripts: [\n",
+      "diff": "--- a/config/env/development.js\n+++ b/config/env/development.js\n@@ -3,7 +3,7 @@\n    zapHostName: \"192.168.56.20\",\n    zapPort: \"8080\",\n    // Required from Zap 2.4.1. This key is set in Zap Options -> API _Api Key.\n-   zapApiKey: \"[REDACTED]\",\n+   zapApiKey: process.env.ZAP_API_KEY,\n    // Required if debugging security regression tests.\n    zapApiFeedbackSpeed: 5000, // Milliseconds.\n    environmentalScripts: [\n",
       "explanation": "The key now comes from the environment, so it is no longer in git; rotate the old key because it is in the history.",
       "verified": true,
       "file": "config/env/development.js",
@@ -578,6 +578,6 @@
     "tokens_out": 6120
   },
   "error": null,
-  "created_at": "2026-09-27T13:47:24.656689Z",
-  "finished_at": "2026-09-27T13:47:31.857334Z"
+  "created_at": "2026-09-27T13:50:17.177428Z",
+  "finished_at": "2026-09-27T13:50:23.938992Z"
 }

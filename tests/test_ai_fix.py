@@ -220,6 +220,7 @@ def test_real_gitleaks_rule(tmp_path, model):
                          "replacement": "   zapApiKey: process.env.ZAP_API_KEY,"}]
     fix = ai_fix.fix_finding(f, wd, tmp_path / "run")
     assert fix.verified is True, fix.note
+    assert "v9dn0balpqas1pcc281tn5ood1" not in fix.diff and "process.env.ZAP_API_KEY" in fix.diff
     # call_json redacts every message before sending: the secret never leaves.
     sent, _ = ai_core.redact(model["calls"][0]["messages"][-1]["content"])
     assert "v9dn0balpqas1pcc281tn5ood1" not in sent
