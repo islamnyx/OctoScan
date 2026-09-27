@@ -174,6 +174,31 @@ def provider_chain(cfg: dict[str, str] | None = None, fallback: bool = True) -> 
     return chain
 
 
+# Cooldown: a provider that is down (unreachable / 5xx / 429) is tried LAST
+# for 60 s instead of first on every call. Without it a hung Brev instance
+# costs a full timeout on each of the ~40 calls of an agent run.
+COOLDOWN_S = 60
+_DOWN_UNTIL: dict[tuple[str, str], float] = {}
+_OUTAGE_RE = re.compile(r"unreachable|error (5\d\d|429)")
+
+
+def _pkey(p: dict[str, str]) -> tuple[str, str]:
+    return ((p.get("base_url") or "").strip().rstrip("/"), (p.get("model") or "").strip())
+
+
+def _note_result(p: dict[str, str], exc: Exception | None) -> None:
+    if exc is None:
+        _DOWN_UNTIL.pop(_pkey(p), None)
+    elif _OUTAGE_RE.search(str(exc)):
+        _DOWN_UNTIL[_pkey(p)] = time.monotonic() + COOLDOWN_S
+
+
+def _healthy_first(chain: list[dict[str, str]]) -> list[dict[str, str]]:
+    now = time.monotonic()
+    cooling = [p for p in chain if _DOWN_UNTIL.get(_pkey(p), 0) > now]
+    return [p for p in chain if p not in cooling] + cooling
+
+
 def _endpoint(base_url: str) -> str:
     base = (base_url or "").strip().rstrip("/")
     return base if base.endswith("/chat/completions") else base + "/chat/completions"
@@ -286,14 +311,14 @@ def stats(since_ts: str = "") -> dict[str, Any]:
     }
 
 
-def _meta(p: dict[str, str], latency_ms: int, usage: dict, idx: int, redactions: int, attempts: int) -> dict:
+def _meta(p: dict[str, str], latency_ms: int, usage: dict, fallback_used: bool, redactions: int, attempts: int) -> dict:
     return {
         "provider": p.get("name") or p.get("provider") or "",
         "model": p.get("model", ""),
         "latency_ms": latency_ms,
         "tokens_in": int(usage.get("prompt_tokens") or 0),
         "tokens_out": int(usage.get("completion_tokens") or 0),
-        "fallback_used": idx > 0,
+        "fallback_used": fallback_used,
         "attempts": attempts,
         "redactions": redactions,
     }
@@ -319,19 +344,24 @@ def call_text(
     if not chain:
         raise AIError("AI base_url/model not configured")
     msgs, n_red = _redact_messages(messages)
+    primary = chain[0]
+    ordered = _healthy_first(chain)
     first_err: AIError | None = None
-    for idx, p in enumerate(chain):
+    for idx, p in enumerate(ordered):
+        fb = p is not primary
         try:
             text, usage, ms = _post_with_429_retry(
                 p, msgs, max_tokens or settings.ai_max_tokens, temperature, None,
-                can_wait=idx == len(chain) - 1,
+                can_wait=idx == len(ordered) - 1,
             )
         except AIError as exc:
-            _record(purpose, p, False, fallback_used=idx > 0, error=str(exc), redactions=n_red)
+            _note_result(p, exc)
+            _record(purpose, p, False, fallback_used=fb, error=str(exc), redactions=n_red)
             first_err = first_err or exc
             continue
-        _record(purpose, p, True, ms, usage, idx > 0, redactions=n_red)
-        return _THINK_RE.sub("", text).strip(), _meta(p, ms, usage, idx, n_red, 1)
+        _note_result(p, None)
+        _record(purpose, p, True, ms, usage, fb, redactions=n_red)
+        return _THINK_RE.sub("", text).strip(), _meta(p, ms, usage, fb, n_red, 1)
     raise first_err or AIError("all AI providers failed")
 
 
@@ -380,27 +410,31 @@ def call_json(
     base, n_red = _redact_messages(base)
     want = list if _wants_list(schema) else dict
 
+    primary = chain[0]
+    ordered = _healthy_first(chain)
     first_err: AIError | None = None
-    for idx, p in enumerate(chain):
+    for idx, p in enumerate(ordered):
+        fb = p is not primary
         rf = _structured_format(p, schema)
         msgs = base
         for attempt in (1, 2):
             try:
                 text, usage, ms = _post_with_429_retry(
-                    p, msgs, max_tokens, temperature, rf, can_wait=idx == len(chain) - 1,
+                    p, msgs, max_tokens, temperature, rf, can_wait=idx == len(ordered) - 1,
                 )
             except AIError as exc:
                 if rf and " 400" in str(exc) and attempt == 1:
                     rf = None  # server refused structured output: retry plain
                     continue
-                _record(purpose, p, False, fallback_used=idx > 0, error=str(exc), redactions=n_red)
+                _note_result(p, exc)
+                _record(purpose, p, False, fallback_used=fb, error=str(exc), redactions=n_red)
                 first_err = first_err or exc
                 break
             try:
                 obj = schema.model_validate(parse_json_loose(text, want=want))
             except (ValueError, ValidationError) as exc:
                 err = AIError(f"invalid JSON from {p.get('model')}: {str(exc)[:300]}")
-                _record(purpose, p, False, ms, usage, idx > 0, error=str(err), redactions=n_red)
+                _record(purpose, p, False, ms, usage, fb, error=str(err), redactions=n_red)
                 first_err = first_err or err
                 msgs = base + [
                     {"role": "assistant", "content": (text or "")[:2000]},
@@ -410,6 +444,7 @@ def call_json(
                     )},
                 ]
                 continue
-            _record(purpose, p, True, ms, usage, idx > 0, redactions=n_red)
-            return obj, _meta(p, ms, usage, idx, n_red, attempt)
+            _note_result(p, None)
+            _record(purpose, p, True, ms, usage, fb, redactions=n_red)
+            return obj, _meta(p, ms, usage, fb, n_red, attempt)
     raise first_err or AIError("all AI providers failed")

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
 
@@ -393,6 +394,9 @@ def review_codebase(
                 pass
 
     cfg = ai_layer.load_config()
+    # Calls recorded from here on belong to this review (manifest honesty:
+    # name the models that actually answered, incl. fallbacks).
+    since = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if model:
         cfg["model"] = model
     if not (cfg.get("base_url") and cfg.get("model")):
@@ -585,20 +589,25 @@ def review_codebase(
         )
     # Always attach the manifest + model id: what was actually read.
     failed = [m for m in manifest if "FAILED" in m]
+    used = ai_layer_core.stats(since)
+    via = ", ".join(used["models"]) or f"{cfg.get('provider', '')}/{cfg.get('model', '')}"
+    if used["fallback_used"]:
+        via += " (fallback)"
     findings.append(
         Finding(
             scanner="ai-code-review",
             title=(
                 f"AI review manifest: {len(final_rels)} file(s) sampled, "
-                f"{total_chars} chars read via {cfg.get('provider', '')}/{cfg.get('model', '')} "
+                f"{total_chars} chars read via {via} "
                 f"({vuln_count} vuln(s), {len(failed)} failed)"
             ),
             severity=Severity.info,
             description="Per-file audit trail:\n" + "\n".join(manifest)[:2500],
             location=repo_url or str(root),
-            raw={"manifest": manifest, "model": cfg.get("model", ""),
+            raw={"manifest": manifest, "model": ", ".join(used["models"]) or cfg.get("model", ""),
+                  "configured_model": cfg.get("model", ""),
                   "provider": cfg.get("provider", ""), "chars_read": total_chars,
-                  "nominated": nominated},
+                  "fallback_used": used["fallback_used"], "nominated": nominated},
         )
     )
     return findings

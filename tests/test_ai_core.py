@@ -41,6 +41,7 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_core, "provider_chain", lambda cfg=None, fallback=True: list(state["chain"]))
     monkeypatch.setattr(ai_core, "CALL_LOG_PATH", tmp_path / "ai_calls.jsonl")
     monkeypatch.setattr(ai_core.time, "sleep", lambda s: None)
+    monkeypatch.setattr(ai_core, "_DOWN_UNTIL", {})
     return state
 
 
@@ -110,6 +111,22 @@ def test_call_json_falls_back_to_second_provider(fake):
     fake["replies"] = [reply("boom", 500), reply('{"verdict": "review", "confidence": 0.5}')]
     obj, meta = ai_core.call_json([{"role": "user", "content": "x"}], Verdict)
     assert obj.verdict == "review" and meta["fallback_used"] and meta["model"] == "m-b"
+
+
+def test_down_provider_is_skipped_during_cooldown(fake):
+    ok = '{"verdict": "real", "confidence": 1}'
+    fake["replies"] = [reply("boom", 502), reply(ok), reply(ok)]
+    ai_core.call_json([{"role": "user", "content": "x"}], Verdict)
+    _, meta = ai_core.call_json([{"role": "user", "content": "y"}], Verdict)
+    assert [r["payload"]["model"] for r in fake["sent"]] == ["m-a", "m-b", "m-b"]
+    assert meta["fallback_used"]  # still reported: primary was not used
+
+
+def test_client_errors_do_not_trigger_cooldown(fake):
+    fake["replies"] = [reply("bad request", 400), reply("ok"), reply("ok")]
+    ai_core.call_text([{"role": "user", "content": "x"}])
+    ai_core.call_text([{"role": "user", "content": "y"}])
+    assert [r["payload"]["model"] for r in fake["sent"]] == ["m-a", "m-b", "m-a"]
 
 
 def test_call_json_all_fail_raises_first_error(fake):
