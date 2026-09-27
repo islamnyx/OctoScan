@@ -47,6 +47,9 @@ def require_api_key(x_api_key: str = Header(default="")):
 app = FastAPI(title="OctoScan", version="0.1.0")
 app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# React dashboard build (frontend/ -> app/static) references /assets/*.
+if (STATIC_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
 
 
 @app.on_event("startup")
