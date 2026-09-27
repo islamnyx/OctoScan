@@ -35,3 +35,32 @@
 - State: works; still NO AI key configured anywhere -> first step for everyone (.env AI_* = NVIDIA)
 - Next: Islam -> hack/islam-agent (ai_agent.py loop, ai_fix.py fix+verify, /api/agent-scan); A -> prefilter+triage+eval; B -> story + agent.html + docs
 - Decisions: integration branch is web_scanners (origin/main left at 5fc04ea); CUT learn-rule, Brev, ZAP follow-ups
+
+## 14:20 - ai_fix + agent models (hack/islam-agent, 3819274)
+- Done: app/ai_fix.py (one call_json -> PatchReply line-range replacement in a ~40-line window, difflib diff, patch on data/agent/<run>/<fix>/{before,after} copies, re-run ONLY the fired rule: semgrep r/<check> or semgrep-rules/, gitleaks rule+merged rules); AgentRun/Step/Finding/Fix/Stats models
+- State: works — 40 pytest pass; real NodeGoat: eval 3->0 verified, zapApiKey 2->0 verified, broken patch -> verified false, clone untouched
+- Next: ai_agent.py loop + /api/agent-scan
+- Decisions: verified null also when no re-scan ran (AI down, patch rejected, rule doesn't fire on original); main model = Brev vLLM (provider "brev", json_schema structured output)
+
+## 14:31 - agent loop + API + A merged (hack/islam-agent, 0ad65fa)
+- Done: app/ai_agent.py (backbone scan->prefilter->triage->fix->verify->story, planner Decision{thought,tool,args} per phase with Literal tools, reuse_scan offer, retry once with scanner feedback, dep advice verified null, data/agent/<run>.json + activity), POST/GET /api/agent-scan + GET /agent in main.py; merged friend A (hack/friend-a-triage) into web_scanners (local, not pushed) and into my branch
+- State: works — 67 pytest pass; real NodeGoat run with NO AI: 56 s, 215 -> 30 (20 code + 10 deps), honest fallbacks, verdict not_ready
+- Next: Brev provider must be saved in the dashboard on this machine (chain is empty), then live run; merge B when pushed
+- Decisions: prefilter split code/deps (A's top-30 alone = all OSV on NodeGoat -> nothing to fix); verdict never "ready" while critical/high findings are only "review"; fix loop stops at first "AI unavailable"
+
+## 14:50 - Friend B's part taken over: ai_story + demo run (hack/islam-agent)
+- Done: app/ai_story.py (one call_json StoryReply; any critical/high real -> not_ready even if the model says ready; AIError -> rule-based + "AI unavailable: ..."), tests/test_ai_story.py; app/static/fake-agent-run.json recorded from a real agent run on the cached NodeGoat scan with a scripted model (real re-scans: eval 3->0, $where 1st patch breaks file -> retry -> 1->0, zapApiKey 2->0); agent.html/agent.js being built
+- State: works — 74 pytest pass
+- Next: agent page, then live Brev run (provider chain still empty on this machine)
+- Decisions: B never pushed, Islam owns B's files now; bug fixed: DATA_DIR relative -> semgrep --output doubled the path (fix dirs now absolute); diffs returned by the API are redacted too
+
+## 15:06 - Agent page done, branch pushed (hack/islam-agent, acting as Friend B too)
+- Done: app/static/agent.html + agent.js (live steps, findings with verdict/confidence/reason + filters, fixes with colored diff + Verified/Not fixed/Not verifiable badge, verdict + blockers + attack story, stats, ?demo=1 replay of fake-agent-run.json, ?run=<id> resume; DOM via textContent only); strict CSP for /agent in app/security.py (script-src 'self'); data/agent/ gitignored (file copies can hold secrets)
+- State: works — 74 pytest pass; headless Chromium on /agent?demo=1 with the real CSP: NOT READY, 3 verified + 3 not verifiable, no console errors; live API run through the page not yet done (no AI provider on this machine)
+- Next: save Brev provider in the dashboard -> live NodeGoat run through /agent; then merge hack/islam-agent into web_scanners; after 15:45 project-card + disclosure (B's docs, now ours)
+- Decisions: B's files are owned by Islam from now on (B never pushed); pushed own branch only, web_scanners untouched on origin
+
+## 15:26 - Full E2E with a dummy Brev (vLLM-like) model
+- Done: fake OpenAI-compatible server answering by json_schema name (Decision_*, TriageBatch, PatchReply, StoryReply) + sandbox app on :8001 (DATA_DIR sandbox, AI_PROVIDER=brev) -> POST /api/agent-scan NodeGoat
+- State: works — done in ~80 s: fresh scan 215 -> 30 (20 code + 10 deps), triage 20 real / 10 FP, eval patch VERIFIED 3->0, zapApiKey VERIFIED 2->0, weak open-redirect patch NOT FIXED twice (retry path), 3 OSV advice null, not_ready; 19 calls all with structured output, stats.model = dummy id; /agent?run=<id> renders it; clone untouched
+- Next: real Brev provider in the dashboard -> same run on the real model; merge into web_scanners

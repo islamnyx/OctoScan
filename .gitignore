@@ -6,6 +6,7 @@ data/scans/
 data/repos/
 data/ai_config.json
 data/ai_calls.jsonl
+data/agent/
 .ZAP/
 .kilo/
 resources/

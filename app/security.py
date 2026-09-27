@@ -138,7 +138,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             or path.startswith("/scans/")
             or path.startswith("/repos/")
         )
-        if is_page:
+        if path in ("/agent", "/static/agent.html"):
+            # Agent page: external agent.js only (no inline scripts), inline <style>.
+            resp.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+            )
+        elif is_page:
             resp.headers["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
