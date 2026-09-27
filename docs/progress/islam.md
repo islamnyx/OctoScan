@@ -17,3 +17,9 @@
 - State: works — 19 pytest pass; E2E via real app endpoints vs a fake OpenAI-compatible reasoning model (sandbox DATA_DIR): test-connection strips <think>; primary down -> fallback (dead primary hit 1x not 6x); nomination reaches review; numbered lines; analyze repaired prose -> valid JSON; 0 of 3 repo secret literals + 0 private key sent (10 [REDACTED]); total outage -> HTTP 200 non-AI summary
 - Next: live test with a real NVIDIA key + model id (still no provider configured here); then pre-filter -> triage
 - Decisions: fallback_used = "not the configured primary"; client errors (400/401/413) don't trigger cooldown
+
+## 12:52 - AI layer tested on Juice Shop (hack/islam-core)
+- Done: Juice Shop codebase scan saved (id 8a617195bea940e6: 98 semgrep, 66 gitleaks of which 58 test fixtures, 1298 files, 60 s); digest now fills with fixtures/dev deps only after real findings (Juice Shop: 31 semgrep + 8 gitleaks, 0 fixtures, all 19 highs); redaction also masks `password === '...'` literals
+- State: works — 20 pytest pass; sandbox E2E with fake reasoning model: HTTP 200 in 11 s, 8 files / 3 prompts, JSON repaired; private key in lib/insecurity.ts masked; all quoted secrets on gitleaks-flagged non-test lines masked
+- Next: real NVIDIA model test (still no key configured), then pre-filter -> triage
+- Decisions/gotchas: Juice Shop has no lockfile -> osv-scanner exits 128 and the app mislabels it "osv-scanner not installed" (source_osv.py _unavailable title; not fixed, not AI). Review samples 8 of 1298 files (byte budget) until real-model nomination runs
