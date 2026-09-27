@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT))
 
 from app import ai_core  # noqa: E402
 from app.ai_triage import prefilter, triage  # noqa: E402
@@ -159,9 +159,10 @@ def main() -> None:
         "# Triage eval (Friend A) — real numbers only\n\n"
         f"- Date (UTC): {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
         f"- Model: `{model_id}` (provider `{provider}`)\n"
-        f"- Labels: `{args.labels}` ({total} findings: "
-        f"{sum(conf['real'].values())} NodeGoat-ish + {sum(conf['false_positive'].values())} — "
-        f"see eval/labels.json for repo split)\n"
+        f"- Labels: `{args.labels}`: {total} NodeGoat findings hand-labelled by Islam "
+        f"({sum(conf['real'].values())} real, {sum(conf['false_positive'].values())} false_positive): "
+        f"16 code (semgrep/gitleaks, max 2 per rule) + 4 dependency (osv)\n"
+        f"- Scan: real binaries (semgrep, gitleaks, osv-scanner) on NodeGoat, 215 findings\n"
         f"- Repos: NodeGoat `{args.nodegoat}`, Juice Shop `{args.juiceshop}`\n"
         f"- Prefilter limit: {args.limit} (eval runs triage on the labelled set directly)\n\n"
         f"## Metrics\n\n"
@@ -187,6 +188,11 @@ def main() -> None:
             for fid, actual in labels.items()
         )
         + f"\n## Notes\n\n- Triage batches 5 findings per call_json call (purpose=triage).\n"
+        f"- Model host: NVIDIA Brev A100 80GB running Ollama, reached through an SSH tunnel; "
+        f"structured JSON output (json_schema).\n"
+        f"- \"verified\" (agent fixes, not measured here) = the rule that fired matches FEWER times "
+        f"in the patched copy of the file than in the original (semgrep/gitleaks re-run on both "
+        f"copies). It is a per-file count, not a per-line proof; null = no re-scan possible.\n"
         f"- AIError maps to verdict=review (counted as incorrect above).\n"
         f"- Numbers come from this run only; re-run to reproduce.\n"
     )

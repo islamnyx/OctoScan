@@ -6,10 +6,9 @@ Pre-launch security check for startups. Scan a live web app (DAST) or a codebase
 
 <p>
   <img src="Presentation/assets/Untitled-removebg-preview.png" height="90" alt="NVIDIA" />
-  <img src="Presentation/assets/3-removebg-preview.png" height="90" alt="NVIDIA Nemotron 3 Ultra" />
 </p>
 
-**Built for the GOMYCODE x NVIDIA hackathon — AI reasoning by NVIDIA Nemotron** (via the NVIDIA NIM API, with a self-hosted vLLM option so code never leaves your infrastructure).
+**Built for the GOMYCODE x NVIDIA hackathon — AI runs on NVIDIA Brev:** our own A100 80GB instance serves `qwen3:32b` (Ollama, OpenAI-compatible, structured JSON output), so the code we analyse never goes to a third-party AI API. Any OpenAI-compatible provider (NVIDIA hosted API at build.nvidia.com, Groq, local Ollama/LM Studio) can be added as a fallback in the dashboard.
 
 ## Security Assessment Toolkit
 
@@ -24,9 +23,10 @@ The mobile toolkit focuses on deterministic security scans against client-suppli
 
 No API keys, no waiting: open the agent page with the recorded run and watch the full loop replay — triage verdicts with confidence, proposed diffs with verified badges, ready/not-ready verdict, attack story.
 
-- Dashboard: `http://127.0.0.1:8000` — Web / Codebase / AI-provider tabs
-- Agent page: `/agent?demo=1` — instant replay of a real recorded run (no backend needed)
-- Full run: `POST /api/agent-scan {"repo_url": "https://github.com/OWASP/NodeGoat"}` — our reference target: **215 findings** (18 critical / 104 high / 78 medium / 15 low, 87 dev-only)
+- Dashboard: `http://127.0.0.1:8000` — Web / Codebase / AI-provider tabs; the orange **AI Agent · results** button opens the agent page
+- Agent page: `/agent` — start a run, watch live steps, and reopen any past run under **Recent AI runs** (`/agent?run=<id>`)
+- Replay: `/agent?demo=1` — instant replay of a **real recorded run on Brev** (`qwen3:32b`, no backend AI needed)
+- Full run: `POST /api/agent-scan {"repo_url": "https://github.com/OWASP/NodeGoat"}` — our reference target: **215 findings** (18 critical / 104 high / 78 medium / 15 low, 87 dev-only); about 7 minutes on Brev
 
 > Never demo a live web scan (up to 20 min) — the recorded web output and the NodeGoat codebase run are the jury path.
 
@@ -36,8 +36,8 @@ Fixed backbone, AI decides inside each step — raw Python loop, no LangGraph/Cr
 
 1. **Scan** — semgrep + gitleaks + OSV (codebase) or Nmap/ZAP/Nuclei/Nikto/testssl/headers (web)
 2. **Prefilter (no AI)** — drops dev-only deps, test fixtures and duplicates first, so 215 findings become ~30 sent to the model (5 per call, ~40 lines of code each)
-3. **Triage (Nemotron)** — every finding gets `real / false_positive / review` + confidence + reason; rules win over the model on highs, and the run is never `ready` with unconfirmed criticals
-4. **Fix + verify** — patch is written on a copy, the fired rule is re-run: `verified=true` only when a re-scan actually passes (OSV/ZAP findings honestly stay unverified)
+3. **Triage (qwen3:32b on Brev)** — every finding gets `real / false_positive / review` + confidence + reason; rules win over the model on highs, and the run is never `ready` with unconfirmed criticals
+4. **Fix + verify** — the model patches a ~40-line window; the patch is applied to a copy (never the cloned repo), then ONLY the rule that fired (semgrep or gitleaks) is re-run on the original and the patched copy. `verified=true` means that rule matches **fewer times in the patched file** (a per-file count, not a per-line proof); `false` = still matches as often, or the patch breaks parsing; `null` = no re-scan possible (OSV/ZAP findings, AI down)
 5. **Story** — findings chained into how an attacker would break in, plus a ready/not-ready ship verdict with blockers
 
 ## Measured, not claimed
@@ -45,17 +45,41 @@ Fixed backbone, AI decides inside each step — raw Python loop, no LangGraph/Cr
 | Signal | Result | Where |
 |---|---|---|
 | Reference scan (OWASP NodeGoat) | 215 findings: 18 crit / 104 high / 78 med / 15 low | demo data + replay |
-| Triage + eval harness | 31 pytest pass | `hack/friend-a-triage` |
-| Labelled eval set | 22 findings | `eval/`, `docs/results.md` |
-| ZAP repair (was 1/20 targets, orphan scans) | per-target isolation + budget caps, verified back-to-back on Juice Shop | `web_scanners` |
-| Model accountability | every call logs model, latency, tokens (never keys) | `app/ai_core.py` on `hack/islam-agent` |
+| Live agent run on Brev (`qwen3:32b`, A100), NodeGoat | 215 -> 30 findings without AI; triage 24 real / 6 false positive; 22 model calls, median 13.5 s, 33.3k tokens in / 13.7k out, no fallback; 6 min 41 s | `app/static/fake-agent-run.json` (run `6450f7181f364d57`) |
+| Patches in that run | 2 verified by re-scan (`eval()` in contributions.js: 3 -> 0 matches for both rules); 1 rejected by the re-scan (`$where` patch broke parsing) | same run, `/agent?demo=1` |
+| Launch verdict | `not_ready`, 6 blockers + attack story written by the model | same run |
+| Tests | 327 pytest pass (75 for the AI layer: core, triage, fix, story, agent) | `tests/` |
+| Triage accuracy (hand-labelled NodeGoat set) | pending: `eval/run_triage.py` writes real numbers to `docs/results.md` | `eval/` |
+| ZAP repair (was 1/20 targets, orphan scans) | per-target isolation + budget caps, verified back-to-back on Juice Shop | `app/scanners/zap_scanner.py` |
+| Model accountability | every call logs model, latency, tokens (never keys) to `data/ai_calls.jsonl` | `app/ai_core.py` |
 
 ## Responsible AI
 
 - Secrets redacted before any code reaches a cloud model; small windows, never whole files
 - Fallback chain (second provider, then non-AI result) — the agent stops fixing instead of hallucinating when AI is down
 - Patches are suggestions a human applies; scans are read-only, consent-signed, SSRF-guarded
+- The scanner, not the model, decides `verified`; the verdict is never `ready` while critical/high findings are unconfirmed; every triage verdict shows its reason and confidence
+- Secrets stay masked in the diffs shown in the UI too
 - Fully local option: Ollama / LM Studio, zero data leaves the machine
+
+## Run the AI agent (NVIDIA Brev)
+
+```bash
+# 1. App
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+./start.sh --app-only                                  # http://127.0.0.1:8000
+
+# 2. Model: tunnel to our Brev instance (brev login; brev refresh; keep this open)
+ssh -o ControlMaster=no -o ControlPath=none -o ServerAliveInterval=20 -N \
+    -L 127.0.0.1:11436:localhost:11434 octoscan-gomycode
+
+# 3. Provider "brev" (turns on structured JSON output), once:
+curl -s -XPOST localhost:8000/api/ai/providers -H 'content-type: application/json' \
+  -d '{"name":"brev","provider":"brev","base_url":"http://127.0.0.1:11436/v1","api_key":"","model":"qwen3:32b","activate":true}'
+curl -s -XPOST localhost:8000/api/ai/test -H 'content-type: application/json' -d '{}'   # {"ok":true,...}
+```
+
+Then open `/agent` and run `https://github.com/OWASP/NodeGoat`. Needs semgrep, gitleaks and osv-scanner (see Prerequisites) for real scans and patch verification; without an AI provider every step falls back to a non-AI result.
 
 ## What it does (base platform)
 
@@ -220,6 +244,9 @@ Open http://127.0.0.1:8000
 | `GET`/`POST` | `/api/ai/providers` | Multi-provider list / add |
 | `POST` | `/api/ai/providers/{name}/activate` · `DELETE` | Switch / remove provider |
 | `POST` | `/api/ai/test` · `/api/ai/models` | Test connection · list models |
+| `POST` | `/api/agent-scan` | Start the AI agent. `{"repo_url": "https://github.com/...", "target_url": null}` -> `{"run_id"}` |
+| `GET` | `/api/agent-scan/{run_id}` | Live run: status, steps (thought/tool/result), findings with verdict + confidence + reason, fixes with diff + verified, verdict, blockers, attack story, stats |
+| `GET` | `/api/agent-scans` | Recent agent runs (summary) |
 | `GET` | `/health` | Health check |
 
 If `API_KEY` is set in `.env`, send header `X-API-Key: <key>` on every `/api/*` call.
@@ -235,8 +262,13 @@ app/
 ├── repo_pipeline.py      # Clone -> scanners -> optional AI + summary
 ├── normalize.py          # Severity maps, prioritize, cross-scanner dedupe
 ├── cvss.py               # Local CVSS v3.1 calculator (OSV vectors)
-├── ai.py                 # BYO AI (any OpenAI-compatible provider)
+├── ai_core.py            # ALL model calls: strict JSON + retry, fallback chain, secret redaction, call log
+├── ai.py                 # BYO AI provider profiles (dashboard) + analyze_findings
 ├── ai_review.py          # Two-phase nominate+batch code review
+├── ai_triage.py          # Prefilter (no AI) + triage real/false_positive/review, 5 per call
+├── ai_fix.py             # Patch ~40-line window -> copy -> re-run only the fired rule -> verified
+├── ai_story.py           # Attack story + ready/not_ready verdict (rule wins on highs)
+├── ai_agent.py           # Agent loop: scan -> prefilter -> triage -> fix -> verify -> story
 ├── repo.py               # Safe https clone + caps + vendored filter
 ├── repo_store.py / store.py / control.py / activity.py
 ├── security.py           # SSRF guard, auth, rate limit, CSP
@@ -249,13 +281,17 @@ app/
 │   ├── source_builtin.py # Secret regex fallback (vendored skip)
 │   └── source_osv.py     # SCA: CVE rollup, CVSS, direct/transitive, runtime/dev scope, parents
 └── static/
-    ├── index.html        # Dashboard (web + codebase + AI tabs, picker)
+    ├── index.html        # Dashboard (React build, assets/ from frontend/)
+    ├── agent.html/.js    # AI agent page: live steps, verdicts, verified patches, recent runs
+    ├── fake-agent-run.json  # Recorded real Brev run for /agent?demo=1
     ├── scan.html         # Results (counts, fix-first, filters, reports)
     ├── status.html       # Live status + activity feed
     ├── logo.png          # OctoSec Labs logo + favicon
     └── fonts/            # Space Grotesk + JetBrains Mono (self-hosted, CSP-safe)
 semgrep-rules/            # Custom logic-flaw rules (NoSQLi/IDOR/redirect/SSRF/XSS)
 data/scans/ data/repos/   # Results + clones (gitignored)
+data/agent/               # Agent runs + before/after file copies (gitignored)
+eval/                     # Triage eval: labels + run_triage.py -> docs/results.md
 scan_toolkit/             # Mobile app security assessment toolkit (CLI, local-first)
 tests/                    # pytest suite
 data/                     # Local data — DB + per-engagement artifacts (gitignored)

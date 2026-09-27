@@ -81,3 +81,8 @@
 - Done: dashboard link to /agent ("AI Agent · results" in app/static/index.html + frontend/index.html), GET /api/agent-scans + "Recent AI runs" on /agent, replay file = real Brev run 6450f718 (qwen3:32b, 22 calls, median 13.5 s, 2 fixes verified by re-scan, 1 $where patch rejected as breaking the file); merged A (be36f24) + main (README); main fast-forwarded to web_scanners
 - State: works — 75 pytest pass; app on :8000 serves /, /agent, /api/agent-scans; Brev via SSH tunnel :11436
 - Next: README says "Nemotron via NIM" but Brev serves Ollama qwen3:32b -> fix claim; keep the tunnel up during the demo; project card + disclosure
+
+## 16:58 - README accurate + main synced
+- Done: merged origin/main (Koussai's scan_toolkit mobile CLI, N3YX theme/PDF report) into web_scanners, no conflicts; README: model claim fixed (Brev A100 serving qwen3:32b via Ollama, not Nemotron/NIM), real measured numbers from Brev run 6450f718, "Run the AI agent (NVIDIA Brev)" setup, agent API endpoints, AI file map, "verified" = fired rule matches fewer times in the patched file; eval/run_triage.py crash fixed (sys.path) + honest report header/notes
+- State: works — 327 pytest pass after `pip install sqlalchemy typer anthropic markdown python-docx reportlab` (scan_toolkit deps live in pyproject.toml, NOT requirements.txt -> `pytest tests -q` fails on a fresh venv without them)
+- Next: label the 20 NodeGoat candidates -> run eval on Brev -> docs/results.md; project card + disclosure
