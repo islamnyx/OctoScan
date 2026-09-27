@@ -8,6 +8,7 @@ from pydantic import HttpUrl
 
 from app.config import ROOT, settings
 from app.models import (
+    AgentScanRequest,
     AIConfigRequest,
     AIConfigResponse,
     AIProviderRequest,
@@ -477,6 +478,43 @@ def scan_ai_analyze(scan_id: str, api_key: str = Depends(require_api_key)):
         job.scanners_run.append("ai")
     save_job(job)
     return job
+
+
+# ---- AI agent (docs/NEXT.md): scan -> triage -> fix -> verify -> story ----
+
+
+@app.post("/api/agent-scan")
+def create_agent_scan(req: AgentScanRequest, request: Request, api_key: str = Depends(require_api_key)):
+    from app import ai_agent
+    from app.repo import validate_repo_url
+
+    # Same guards as repo scans: rate limit, https-only repo URL with the
+    # private-host SSRF posture; optional web target through the SSRF guard.
+    _limiter.check(request.client.host if request.client else "unknown")
+    repo_url = validate_repo_url(req.repo_url)
+    target = validate_target_url(req.target_url, settings.allow_private_targets) if req.target_url else None
+    if ai_agent.running_count() >= ai_agent.MAX_RUNNING:
+        raise HTTPException(429, f"too many agent runs (max {ai_agent.MAX_RUNNING}), retry later")
+    run = ai_agent.start(repo_url, target)
+    return {"run_id": run.run_id}
+
+
+@app.get("/api/agent-scan/{run_id}")
+def get_agent_scan(run_id: str, api_key: str = Depends(require_api_key)):
+    from app import ai_agent
+
+    run_id = validate_scan_id(run_id)
+    data = ai_agent.get(run_id)
+    if data is None:
+        raise HTTPException(404, "agent run not found")
+    return data
+
+
+@app.get("/agent")
+def agent_page():
+    if not (STATIC_DIR / "agent.html").exists():
+        raise HTTPException(404, "agent page not built yet")
+    return FileResponse(STATIC_DIR / "agent.html")
 
 
 # ---- Run controls: pause / resume / finish (long scans) ----
