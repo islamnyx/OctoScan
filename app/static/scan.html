@@ -12,109 +12,148 @@
     @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("/static/fonts/jetbrainsmono-600.woff2") format("woff2"); }
     :root {
       color-scheme: dark;
-      --bg: #1A1A1A; --surface: #242424; --surface-2: #2C2C2C;
-      --border: #3A3A3A; --border-strong: #4C4C4C;
-      --text: #FFFFFF; --muted: #6A748B; --faint: #9AA3B5;
+      --bg: #060B16; --surface: rgba(13,22,41,.82); --surface-2: rgba(20,32,58,.9);
+      --border: rgba(120,160,255,.14); --border-strong: rgba(120,160,255,.28);
+      --text: #EEF3FF; --muted: #8B98B8; --faint: #5D6B8C;
       --accent: #FF6B00; --accent-dark: #E05F00; --accent-soft: rgba(255,107,0,.14);
+      --cyber: #38E1FF; --cyber-soft: rgba(56,225,255,.10);
       --crit: #FF6B00; --crit-bg: rgba(255,107,0,.16);
       --high: #FF8C2E; --high-bg: rgba(255,140,46,.13);
       --med: #9AA3B5; --med-bg: rgba(106,116,139,.20);
       --low: #6A748B; --low-bg: rgba(106,116,139,.13);
       --info: #6A748B; --info-bg: rgba(106,116,139,.10);
       --ok: #4ADE80; --ok-bg: rgba(74,222,128,.12); --err: #FF8F84; --err-bg: rgba(255,143,132,.12);
-      --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-      --sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --radius: 10px;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: "Space Grotesk", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+      --radius: 16px;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
-    .topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .topbar-inner { max-width: 1120px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; }
+    body { margin: 0; font-family: var(--sans); color: var(--text); font-size: 14px; line-height: 1.5;
+      background: radial-gradient(900px 480px at 15% -5%, rgba(255,107,0,.16), transparent 60%), radial-gradient(900px 520px at 90% 0%, rgba(56,225,255,.12), transparent 60%), #060B16; min-height: 100vh; }
+    body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: linear-gradient(rgba(120,160,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(120,160,255,.06) 1px, transparent 1px);
+      background-size: 44px 44px; mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, black 40%, transparent 100%); }
+    .topbar { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px); background: rgba(6,11,22,.78); border-bottom: 1px solid var(--border); }
+    .topbar-inner { max-width: 1220px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; }
     .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; color: inherit; }
     .brand-name { font-size: 15px; font-weight: 700; }
-    .backlink { font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
-    .backlink:hover { text-decoration: underline; }
-    main { max-width: 1120px; margin: 0 auto; padding: 24px 24px 64px; }
-    .report-head { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 14px; }
-    .kind { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
-    h1.target { font-size: 20px; margin: 0 0 4px; word-break: break-all; letter-spacing: -0.01em; }
-    .meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
-    .meta code { font-family: var(--mono); font-size: 12px; }
-    .st { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; }
-    .st.completed { background: var(--ok-bg); color: var(--ok); }
-    .st.failed { background: var(--err-bg); color: var(--err); }
-    .st.running, .st.queued { background: var(--accent-soft); color: #FFB37A; }
-    .st.paused { background: var(--high-bg); color: var(--high); }
+    .backlink { font-size: 12px; font-weight: 700; font-family: var(--mono); letter-spacing: .06em; color: var(--cyber); text-decoration: none; border: 1px solid var(--border-strong); padding: 6px 12px; border-radius: 999px; background: var(--cyber-soft); }
+    .backlink:hover { color: var(--text); }
+    .apikey { width: 160px; font: inherit; font-family: var(--mono); font-size: 12.5px; padding: 7px 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: rgba(4,7,15,.6); color: var(--text); }
+    main { max-width: 1220px; margin: 0 auto; padding: 24px 24px 64px; position: relative; z-index: 1; }
+    .report-head { background: linear-gradient(180deg, rgba(20,32,58,.92), rgba(9,15,30,.94)); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 22px; margin-bottom: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+    .kind { font-size: 11px; font-weight: 700; font-family: var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--cyber); margin: 0 0 6px; }
+    h1.target { font-size: 20px; margin: 0 0 4px; word-break: break-all; }
+    .meta { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; } .meta code { font-family: var(--mono); font-size: 12px; }
+    .st { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; border-radius: 5px; padding: 2px 8px; }
+    .st.completed { background: var(--ok-bg); color: var(--ok); } .st.failed { background: var(--err-bg); color: var(--err); }
+    .st.running, .st.queued { background: var(--accent-soft); color: #FFB37A; } .st.paused { background: var(--high-bg); color: var(--high); }
+    .exec { display: grid; grid-template-columns: 200px 1fr; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+    @media (max-width: 760px) { .exec { grid-template-columns: 1fr; } }
+    .grade { text-align: center; }
+    .grade .score { font-size: 44px; font-weight: 700; line-height: 1; }
+    .grade .g { font-size: 13px; font-weight: 700; color: var(--muted); }
+    .exec p { margin: 0; font-size: 13.5px; color: var(--text); }
+    .exec .plain { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
     .summarybar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
     .pill { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 11px; }
     .pill b { font-size: 13.5px; }
-    .pill.critical { background: var(--crit-bg); color: var(--crit); }
-    .pill.high { background: var(--high-bg); color: var(--high); }
-    .pill.medium { background: var(--med-bg); color: var(--med); }
-    .pill.low { background: var(--low-bg); color: var(--low); }
-    .pill.info { background: var(--info-bg); color: var(--info); }
+    .pill.critical { background: var(--crit-bg); color: var(--crit); } .pill.high { background: var(--high-bg); color: var(--high); }
+    .pill.medium { background: var(--med-bg); color: var(--med); } .pill.low { background: var(--low-bg); color: var(--low); } .pill.info { background: var(--info-bg); color: var(--info); }
     .summary-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
     .topfix { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 14px; font-size: 13px; }
-    .topfix h3 { margin: 0 0 6px; font-size: 13px; }
-    .topfix ol { margin: 4px 0 2px; padding-left: 20px; }
-    .topfix li { margin: 3px 0; }
-    .topfix a { color: var(--text); text-decoration: none; }
-    .topfix a:hover { color: var(--accent); text-decoration: underline; }
-    .f-meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
-    .btn { appearance: none; border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: var(--surface-2); color: var(--text); }
-    .btn:hover { background: var(--surface-2); }
-    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
-    .btn.primary:hover { background: var(--accent-dark); }
+    .btn { border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 15px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; background: rgba(255,255,255,.05); color: var(--text); }
+    .btn:hover { border-color: var(--accent); } .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn.primary { background: linear-gradient(180deg, #FF7A1A, var(--accent-dark)); border-color: transparent; color: #fff; box-shadow: 0 8px 24px rgba(255,107,0,.35); }
     .banner { border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; border: 1px solid; }
     .banner.busy { background: var(--accent-soft); border-color: rgba(255,107,0,.35); color: #FFB37A; }
     .banner.error { background: var(--err-bg); border-color: rgba(255,143,132,.35); color: var(--err); }
     .banner a { color: inherit; font-weight: 700; }
-    .filterbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-    .fbtn { appearance: none; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-    .fbtn:hover { border-color: var(--accent); color: var(--accent); }
-    .fbtn.active { background: #fff; border-color: #fff; color: #1A1A1A; }
-    .ai-panel { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
-    .ai-panel h3 { margin: 0 0 6px; font-size: 13.5px; }
-    .ai-panel h3 .model { font-weight: 400; color: var(--muted); font-size: 12.5px; }
-    .ai-panel p { margin: 0 0 8px; font-size: 13.5px; }
-    .ai-panel ul { margin: 8px 0 4px; padding-left: 18px; font-size: 13px; }
-    details.manifest { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; }
-    details.manifest summary { cursor: pointer; font-weight: 600; color: var(--muted); }
-    details.manifest pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; background: #141414; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 10px 0 2px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .fbtn { border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .fbtn:hover { border-color: var(--accent); color: var(--accent); } .fbtn.active { background: #fff; border-color: #fff; color: #1A1A1A; }
+    .search { font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); min-width: 200px; }
     .finding-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
-    .finding-head { width: 100%; appearance: none; border: 0; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 12px 16px; font: inherit; cursor: pointer; text-align: left; }
-    .finding-head:hover { background: var(--surface-2); }
-    .finding-head .scanner { font-weight: 700; font-size: 13.5px; }
-    .finding-head .count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
-    .finding-head .chev { margin-left: auto; color: var(--faint); font-size: 12px; }
-    .finding-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
-    .finding-body.open { display: block; }
+    .finding-head { width: 100%; border: 0; background: var(--surface); display: flex; align-items: center; gap: 10px; padding: 12px 16px; font: inherit; cursor: pointer; text-align: left; color: var(--text); }
+    .finding-head .scanner { font-weight: 700; font-size: 13.5px; } .finding-head .count { font-size: 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+    .finding-head .chev { margin-left: auto; color: var(--faint); }
+    .finding-body { display: none; border-top: 1px solid var(--border); overflow-x: auto; } .finding-body.open { display: block; }
     table.findings { width: 100%; border-collapse: collapse; font-size: 13px; }
-    table.findings th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; padding: 8px 16px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.findings th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px 16px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
     table.findings td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
-    table.findings tr:last-child td { border-bottom: 0; }
-    table.findings tbody tr:hover { background: rgba(255,255,255,.045); }
-    .sev { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
-    .sev.critical { background: var(--crit-bg); color: var(--crit); }
-    .sev.high { background: var(--high-bg); color: var(--high); }
-    .sev.medium { background: var(--med-bg); color: var(--med); }
-    .sev.low { background: var(--low-bg); color: var(--low); }
-    .sev.info { background: var(--info-bg); color: var(--info); }
-    .f-title { font-weight: 600; }
-    .f-desc { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+    .sev { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; border-radius: 5px; padding: 2px 8px; }
+    .sev.critical { background: var(--crit-bg); color: var(--crit); } .sev.high { background: var(--high-bg); color: var(--high); }
+    .sev.medium { background: var(--med-bg); color: var(--med); } .sev.low { background: var(--low-bg); color: var(--low); } .sev.info { background: var(--info-bg); color: var(--info); }
+    .f-title { font-weight: 600; } .f-desc { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
     .f-ev { font-family: var(--mono); font-size: 11.5px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; margin-top: 6px; word-break: break-all; }
     .f-loc { font-family: var(--mono); font-size: 12px; word-break: break-all; }
-    footer { max-width: 1120px; margin: 0 auto; padding: 0 24px 32px; color: var(--faint); font-size: 12px; }
+    .f-meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
+    .mini { font-size: 11.5px; padding: 3px 9px; }
+    :root { --side-w: 248px; --side-w-min: 72px; }
+    #sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--side-w); z-index: 40;
+      background: var(--bg2, #0A1224); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 16px 12px; gap: 2px; transition: width .2s ease, transform .25s ease; }
+    #sidebar .side-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+    #sidebar .side-brand .brand-mark { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; color: #fff; background: var(--accent); overflow: hidden; }
+    #sidebar .side-brand .brand-mark img { width: 100%; height: 100%; object-fit: cover; }
+    #sidebar .side-brand b { font-size: 14px; display: block; line-height: 1.1; } #sidebar .side-brand span { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+    .side-cap { font-family: var(--mono); font-size: 10px; color: var(--faint); padding: 12px 10px 5px; }
+    .side-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid transparent; background: none; width: 100%; text-align: left; font-family: inherit; cursor: pointer; }
+    .side-link:hover { color: var(--text); background: rgba(255,255,255,.03); }
+    .side-link.active { color: var(--text); background: rgba(255,255,255,.05); border-color: var(--border); }
+    .side-link .ico { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 22px; flex: 0 0 22px; text-align: center; }
+    .side-link.active .ico { color: var(--accent); }
+    .side-foot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; display: grid; gap: 8px; }
+    #collapse-btn, #palette-btn { display: flex; align-items: center; gap: 10px; width: 100%; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; cursor: pointer; }
+    #collapse-btn:hover, #palette-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    #palette-btn kbd { margin-left: auto; font-family: var(--mono); font-size: 10px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 1px 6px; color: var(--faint); }
+    body.has-side .topbar-inner, body.has-side main, body.has-side footer { margin-left: var(--side-w); max-width: none; }
+    body.has-side main { max-width: calc(1220px + var(--side-w)); }
+    body.side-min { --side-w: var(--side-w-min); }
+    body.side-min #sidebar .lbl, body.side-min #sidebar .side-cap, body.side-min #sidebar .side-brand b, body.side-min #sidebar .side-brand span, body.side-min #sidebar #palette-btn kbd { display: none; }
+    body.side-min .side-link { justify-content: center; }
+    #burger { display: none; background: none; border: 1px solid var(--border-strong); color: var(--text); border-radius: 9px; padding: 6px 10px; cursor: pointer; font-size: 15px; }
+    #scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 35; border: 0; }
+    #palette { display: none; position: fixed; z-index: 60; top: 12vh; left: 50%; transform: translateX(-50%); width: min(560px, 92vw); background: var(--bg2, #0A1224); border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; }
+    #palette.open { display: block; }
+    #palette input { width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--border); color: var(--text); font: inherit; font-size: 14px; padding: 14px 16px; outline: none; }
+    #palette-list { max-height: 320px; overflow-y: auto; padding: 6px; }
+    #palette-list button { display: flex; gap: 10px; align-items: center; width: 100%; background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; padding: 9px 11px; border-radius: 9px; cursor: pointer; text-align: left; }
+    #palette-list button.sel, #palette-list button:hover { background: rgba(255,107,0,.12); color: var(--text); }
+    @media (max-width: 1023px) { #sidebar { transform: translateX(-100%); } body.side-open #sidebar { transform: none; } body.side-open #scrim { display: block; } body.has-side .topbar-inner, body.has-side main, body.has-side footer { margin-left: 0; } #burger { display: block; } }
+    footer { max-width: 1180px; margin: 0 auto; padding: 0 24px 32px; color: var(--faint); font-size: 12px; }
+    /* Structured print = PDF. Only #print-report prints. */
+    #print-report { display: none; }
+    @media print {
+      body { background: #fff; color: #111; }
+      body * { visibility: hidden; }
+      #print-report, #print-report * { visibility: visible; }
+      #print-report { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 24px; font-family: Arial, sans-serif; color: #111; }
+      #print-report h1 { font-size: 22px; margin: 0 0 4px; } #print-report h2 { font-size: 15px; margin: 18px 0 6px; border-bottom: 2px solid #111; padding-bottom: 4px; }
+      #print-report table { width: 100%; border-collapse: collapse; font-size: 11px; } #print-report th, #print-report td { border: 1px solid #999; padding: 6px; text-align: left; vertical-align: top; }
+      #print-report .cover-meta { font-size: 11px; color: #444; } #print-report .pagebreak { page-break-before: always; }
+    }
   </style>
 </head>
-<body>
+<body class="has-side">
+  <button id="scrim" aria-label="close menu"></button>
+  <aside id="sidebar" aria-label="Menu">
+    <div class="side-brand"><span class="brand-mark"><img src="/static/logo.png" alt="" onerror="this.remove();this.parentElement.textContent='O'" /></span><div><b>OctoScan</b><span>report</span></div></div>
+    <div class="side-cap">Navigate</div>
+    <a class="side-link" href="/"><span class="ico">←</span><span class="lbl">All scans</span></a>
+    <a class="side-link" href="#exec" data-spy="exec"><span class="ico">01</span><span class="lbl">Summary</span></a>
+    <a class="side-link" href="#topfix" data-spy="topfix"><span class="ico">02</span><span class="lbl">Fix first</span></a>
+    <a class="side-link" href="#results" data-spy="results"><span class="ico">03</span><span class="lbl">Findings</span></a>
+    <div class="side-cap">Tools</div>
+    <button class="side-link" id="palette-btn" style="width:100%;text-align:left;"><span class="ico">/</span><span class="lbl">Command…</span><kbd>Ctrl K</kbd></button>
+    <div class="side-foot"><button id="collapse-btn" title="Collapse sidebar">⇤ <span class="lbl">Collapse</span></button></div>
+  </aside>
+  <div id="palette" role="dialog" aria-label="Command palette"><input id="palette-input" placeholder="Type a command… (pdf, json, filter)" autocomplete="off" /><div id="palette-list"></div></div>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="/" style="display:flex; align-items:center; gap:10px; margin-right:auto; text-decoration:none; color:inherit;">
-        <img src="/static/logo.png" alt="OctoScan logo" width="28" height="28" style="border-radius:6px" />
-        <span class="brand-name" style="font-size:15px; font-weight:700;">OctoScan</span>
-      </a>
+      <button id="burger" aria-label="open menu">☰</button>
+      <a class="brand" href="/"><img src="/static/logo.png" alt="OctoScan logo" width="28" height="28" style="border-radius:6px" /><span class="brand-name">OctoScan</span></a>
+      <input id="api-key" class="apikey" type="password" placeholder="API key" autocomplete="off" aria-label="API key" />
       <a class="backlink" href="/">All scans</a>
     </div>
   </header>
@@ -126,18 +165,30 @@
     </div>
     <div id="state-banner"></div>
     <div id="ai-result"></div>
+    <div class="exec" id="exec" style="display:none;">
+      <div class="grade"><div class="score" id="risk-score">—</div><div class="g" id="risk-grade">risk score</div><div class="g" style="font-weight:400;">100 = clean</div></div>
+      <div><p id="exec-summary"></p><p class="plain" id="exec-plain"></p></div>
+    </div>
     <div class="summarybar" id="counts" style="display:none;"></div>
     <div id="topfix"></div>
-    <div class="filterbar" id="filters" style="display:none;">
-      <button class="fbtn active" data-sev="all">All</button>
+    <div class="toolbar" id="filters" style="display:none;">
+      <input class="search" id="q" placeholder="Search findings… (title, CVE, location)" aria-label="Search findings" />
+      <button class="fbtn active" data-sev="hide-info">Hide info</button>
+      <button class="fbtn" data-sev="all">All</button>
       <button class="fbtn" data-sev="critical">Critical</button>
       <button class="fbtn" data-sev="high">High</button>
       <button class="fbtn" data-sev="medium">Medium</button>
       <button class="fbtn" data-sev="low">Low</button>
       <button class="fbtn" data-sev="info">Info</button>
+      <button class="fbtn scope active" data-scope="all">All scopes</button>
+      <button class="fbtn scope" data-scope="runtime">Runtime</button>
+      <button class="fbtn scope" data-scope="dev">Dev-only</button>
+      <button class="btn mini" id="expand-all" type="button">Expand all</button>
+      <button class="btn mini" id="collapse-all" type="button">Collapse all</button>
     </div>
     <div id="results"></div>
   </main>
+  <div id="print-report" aria-hidden="true"></div>
   <footer>Findings are advisory — verify before acting.</footer>
   <script>
     const parts = location.pathname.split("/").filter(Boolean);
@@ -145,60 +196,66 @@
     const scanId = parts[1] || "";
     const apiBase = (isRepo ? "/api/repo-scans/" : "/api/scans/") + encodeURIComponent(scanId);
     const statusUrl = (isRepo ? "/repos/" : "/scans/") + encodeURIComponent(scanId) + "/status";
-    const key = (localStorage.getItem("apiKey") || "").trim();
-    const headers = { "Content-Type": "application/json" };
-    if (key) headers["X-API-Key"] = key;
-
-    let job = null;
-    let activeSev = "hide-info";
-    let activeScope = "all";
+    const keyInput = document.getElementById("api-key");
+    keyInput.value = localStorage.getItem("apiKey") || "";
+    keyInput.addEventListener("change", () => localStorage.setItem("apiKey", keyInput.value.trim()));
+    function headers() { const h = { "Content-Type": "application/json" }; const k = (keyInput.value || "").trim(); if (k) h["X-API-Key"] = k; return h; }
+    let job = null, activeSev = "hide-info", activeScope = "all", query = "";
     const filtersEl = document.getElementById("filters");
-    filtersEl.innerHTML = `<button class="fbtn active" data-sev="hide-info">Hide info</button>`
-      + `<button class="fbtn" data-sev="all">All</button>`
-      + filtersEl.innerHTML
-      + `<span style="margin-left:10px;"></span><button class="fbtn scope active" data-scope="all">All scopes</button>`
-      + `<button class="fbtn scope" data-scope="runtime">Runtime</button>`
-      + `<button class="fbtn scope" data-scope="dev">Dev-only</button>`;
-    filtersEl.querySelectorAll(".fbtn").forEach(b => {
-      b.addEventListener("click", () => {
-        if (b.dataset.scope !== undefined) {
-          filtersEl.querySelectorAll(".fbtn.scope").forEach(x => x.classList.remove("active"));
-          b.classList.add("active");
-          activeScope = b.dataset.scope;
-        } else {
-          filtersEl.querySelectorAll(".fbtn:not(.scope)").forEach(x => x.classList.remove("active"));
-          b.classList.add("active");
-          activeSev = b.dataset.sev;
-        }
-        if (job) render(job);
-      });
-    });
+    filtersEl.querySelectorAll(".fbtn").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.scope !== undefined) { filtersEl.querySelectorAll(".fbtn.scope").forEach(x => x.classList.remove("active")); b.classList.add("active"); activeScope = b.dataset.scope; }
+      else { filtersEl.querySelectorAll(".fbtn:not(.scope)").forEach(x => x.classList.remove("active")); b.classList.add("active"); activeSev = b.dataset.sev; }
+      if (job) render(job);
+    }));
+    document.getElementById("q").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); if (job) render(job); });
+    document.getElementById("expand-all").addEventListener("click", () => document.querySelectorAll(".finding-body").forEach(b => b.classList.add("open")));
+    document.getElementById("collapse-all").addEventListener("click", () => document.querySelectorAll(".finding-body").forEach(b => b.classList.remove("open")));
+    function esc(s) { return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function riskScore(c) { return Math.max(0, 100 - (c.critical*25 + c.high*10 + c.medium*4 + c.low*1)); }
+    function gradeFor(s) { return s >= 90 ? "A" : s >= 75 ? "B" : s >= 60 ? "C" : s >= 40 ? "D" : "F"; }
 
-    function esc(s) {
-      return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function downloadBlob(url, filename, isJson) {
+      const res = await fetch(url, { headers: headers() });
+      if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+      const blob = isJson ? new Blob([JSON.stringify(await res.json(), null, 2)], { type: "application/json" }) : new Blob([await res.text()], { type: "text/plain" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    }
+
+    function buildPrintReport(j, counts, score) {
+      const label = isRepo ? j.repo_url : j.target_url;
+      const finished = j.finished_at ? new Date(j.finished_at).toLocaleString() : "not finished";
+      const rows = (j.findings || []).filter(f => f.severity !== "info").map(f =>
+        `<tr><td>${esc(f.severity.toUpperCase())}</td><td><b>${esc(f.title)}</b><br/>${esc((f.description||"").slice(0,300))}<br/><i>${esc(f.cve||"")}</i></td><td>${esc(f.location)}<br/>${esc(f.scanner)}</td><td>CVSS ${esc(String(f.cvss ?? "—"))}<br/>${esc((f.cwe||[]).join(", "))} ${esc((f.owasp||[]).join(", "))}<br/>${esc((f.recommendation||"—").slice(0,300))}</td></tr>`
+      ).join("");
+      document.getElementById("print-report").innerHTML = `
+        <h1>OctoScan Security Report</h1>
+        <div class="cover-meta">OctoSec Labs · ${esc(isRepo ? "Codebase" : "Web application")} scan · ${new Date().toLocaleString()}</div>
+        <h2>1. Target</h2>
+        <table><tr><th>Target</th><td>${esc(label || j.id)}</td></tr><tr><th>Scan ID</th><td>${esc(j.id)}</td></tr><tr><th>Status</th><td>${esc(j.status)}</td></tr><tr><th>Finished</th><td>${esc(finished)}</td></tr><tr><th>Scanners</th><td>${esc((j.scanners_run||[]).join(", "))}</td></tr><tr><th>Risk score</th><td>${score}/100 (grade ${gradeFor(score)})</td></tr></table>
+        <h2>2. Executive summary</h2>
+        <p>${esc(document.getElementById("exec-summary").textContent)}</p>
+        <p>${esc(document.getElementById("exec-plain").textContent)}</p>
+        <table><tr><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th></tr><tr><td>${counts.critical}</td><td>${counts.high}</td><td>${counts.medium}</td><td>${counts.low}</td><td>${counts.info}</td></tr></table>
+        <h2>3. Priority fixes (top 5)</h2>
+        <ol>${(j.findings||[]).filter(f => f.severity !== "info").slice(0,5).map(f => `<li><b>[${esc(f.severity.toUpperCase())}]</b> ${esc(f.title)} — ${esc((f.recommendation||"").slice(0,200))}</li>`).join("") || "<li>No actionable findings.</li>"}</ol>
+        <div class="pagebreak"></div>
+        <h2>4. Methodology</h2>
+        <p>Web: Nmap, OWASP ZAP (capped active scan), testssl.sh, headers, Nikto, Nuclei (throttled), sensitive-file post-pass with content-signature verification, cross-scanner dedupe, quality gate (FAIL on XSS/SQLi). Codebase: Gitleaks secrets, Semgrep SAST with custom taint rules, OSV dependency CVEs with CVSS + direct/transitive + runtime/dev scope. Static results do not prove secure — business-logic flaws need manual review.</p>
+        <h2>5. Detailed findings (${(j.findings||[]).length})</h2>
+        <table><tr><th>Sev</th><th>Finding</th><th>Location / Scanner</th><th>Score / Fix</th></tr>${rows || '<tr><td colspan="4">No actionable findings.</td></tr>'}</table>
+        <h2>6. Appendix</h2>
+        <p>Quality gate: ${esc(j.gate || "unknown")}. ${(j.gate_details||[]).map(esc).join("; ")}. Findings are advisory — verify before acting. Generated by OctoScan.</p>`;
+      window.print();
     }
 
     async function load() {
       let res;
-      try {
-        res = await fetch(apiBase, { headers });
-      } catch (e) {
-        document.getElementById("kind").textContent = "Connection error";
-        document.getElementById("target").textContent = "Could not reach the API.";
-        return;
-      }
-      if (res.status === 403) {
-        document.getElementById("kind").textContent = "Locked";
-        document.getElementById("target").textContent = "This server requires an API key — set it on the dashboard once, then reopen this page.";
-        return;
-      }
-      if (!res.ok) {
-        document.getElementById("kind").textContent = "Not found";
-        document.getElementById("target").textContent = "No such scan.";
-        return;
-      }
-      job = await res.json();
-      render(job);
+      try { res = await fetch(apiBase, { headers: headers() }); }
+      catch (e) { document.getElementById("kind").textContent = "Connection error"; document.getElementById("target").textContent = "Could not reach the API."; return; }
+      if (res.status === 403) { document.getElementById("kind").textContent = "Locked"; document.getElementById("target").textContent = "This server requires an API key — set it in the top bar, then reload."; return; }
+      if (!res.ok) { document.getElementById("kind").textContent = "Not found"; document.getElementById("target").textContent = "No such scan."; return; }
+      job = await res.json(); render(job);
     }
 
     function render(j) {
@@ -207,90 +264,57 @@
       document.getElementById("target").textContent = label || j.id;
       const finished = j.finished_at ? new Date(j.finished_at).toLocaleString() : "not finished";
       const extra = isRepo ? ` · ${j.files_scanned || 0} files` : ` · ${(j.scanners_run || []).join(", ")}`;
-      document.getElementById("meta").innerHTML =
-        `<span class="st ${j.status}">${esc(j.status)}</span> &nbsp;id <code>${esc(j.id)}</code> · finished ${esc(finished)}${esc(extra)}`;
-
+      document.getElementById("meta").innerHTML = `<span class="st ${esc(j.status)}">${esc(j.status)}</span> &nbsp;id <code>${esc(j.id)}</code> · finished ${esc(finished)}${esc(extra)}`;
       const banner = document.getElementById("state-banner");
-      if (j.status === "running" || j.status === "queued" || j.status === "paused") {
-        banner.innerHTML = `<div class="banner busy">This scan is <b>&nbsp;${esc(j.status)}&nbsp;</b> — showing partial results. <a href="${statusUrl}">Open the live status page</a></div>`;
-      } else if (j.status === "failed" && !(j.findings || []).length) {
-        banner.innerHTML = `<div class="banner error">${esc(j.error || "Scan failed.")}</div>`;
-      } else {
-        banner.innerHTML = (j.error || "").indexOf("Finished early") === 0
-          ? `<div class="banner busy">${esc(j.error)}</div>` : "";
-      }
+      if (j.status === "running" || j.status === "queued" || j.status === "paused") banner.innerHTML = `<div class="banner busy">This scan is <b>&nbsp;${esc(j.status)}&nbsp;</b> — showing partial results. <a href="${statusUrl}">Open the live status page</a></div>`;
+      else if (j.status === "failed" && !(j.findings || []).length) banner.innerHTML = `<div class="banner error">${esc(j.error || "Scan failed.")}</div>`;
+      else banner.innerHTML = (j.error || "").indexOf("Finished early") === 0 ? `<div class="banner busy">${esc(j.error)}</div>` : "";
 
       const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
       (j.findings || []).forEach(f => { if (counts[f.severity] !== undefined) counts[f.severity]++; });
-      const countsEl = document.getElementById("counts");
-      countsEl.style.display = "flex";
-      countsEl.innerHTML = ["critical", "high", "medium", "low", "info"]
-        .map(k => `<span class="pill ${k}">${k}<b>${counts[k]}</b></span>`).join("")
-        + ((j.summary && j.summary.merged_duplicates) ? `<span class="pill info" title="Duplicate findings collapsed by dedup">×${j.summary.merged_duplicates} merged</span>` : "")
-        + ((j.summary && j.summary.findings_with_secrets) ? `<span class="pill high" title="Findings involving hardcoded secrets/keys">secrets ${j.summary.findings_with_secrets}</span>` : "")
-        + ((j.summary && j.summary.dev_only_findings) ? `<span class="pill info" title="Findings in dev-only dependencies (test/build tooling)">dev-only ${j.summary.dev_only_findings}</span>` : "")
-        + `<span class="summary-actions" style="margin-left:auto; display:flex; gap:8px;"></span>`;
+      const score = riskScore(counts);
+      const exec = document.getElementById("exec"); exec.style.display = "grid";
+      document.getElementById("risk-score").textContent = score;
+      document.getElementById("risk-grade").textContent = "Grade " + gradeFor(score);
+      const actionable = (j.findings || []).filter(f => f.severity && f.severity !== "info");
+      document.getElementById("exec-summary").textContent = actionable.length
+        ? `${actionable.length} actionable finding${actionable.length === 1 ? "" : "s"} (${counts.critical} critical, ${counts.high} high) on ${label || j.id}. Highest priority: ${(actionable[0].title || "").slice(0, 140)}.`
+        : `No actionable findings on ${label || j.id}. ${counts.info} informational note${counts.info === 1 ? "" : "s"}. A clean static result does not mean secure — verify authz and business logic manually.`;
+      document.getElementById("exec-plain").textContent = counts.critical ? "Plain language: fix critical items before launch or demo — they are directly exploitable."
+        : counts.high ? "Plain language: high items should be fixed this week; they expose data or access when chained."
+        : actionable.length ? "Plain language: medium/low hygiene issues — schedule fixes, no launch blocker."
+        : "Plain language: nothing urgent found by automated checks.";
+
+      const countsEl = document.getElementById("counts"); countsEl.style.display = "flex";
+      countsEl.innerHTML = ["critical","high","medium","low","info"].map(k => `<span class="pill ${k}">${k}<b>${counts[k]}</b></span>`).join("")
+        + ((j.summary && j.summary.merged_duplicates) ? `<span class="pill info">×${j.summary.merged_duplicates} merged</span>` : "")
+        + `<span class="summary-actions"></span>`;
       const actions = countsEl.querySelector(".summary-actions");
-      const mkBtn = (label, primary, fn) => {
-        const b = document.createElement("button");
-        b.className = "btn" + (primary ? " primary" : "");
-        b.textContent = label;
-        b.addEventListener("click", fn);
-        actions.appendChild(b);
-      };
-      mkBtn("Export JSON", false, () => {
-        const a = document.createElement("a");
-        a.href = isRepo ? apiBase : apiBase + "/export";
-        a.download = `scan-${j.id}.json`;
-        a.click();
-      });
-      mkBtn("Text report", false, () => window.open(apiBase + "/report", "_blank"));
+      const mkBtn = (label, primary, fn) => { const b = document.createElement("button"); b.className = "btn" + (primary ? " primary" : ""); b.textContent = label; b.addEventListener("click", fn); actions.appendChild(b); };
+      mkBtn("Export JSON", false, async (ev) => { const b = ev.currentTarget; b.disabled = true; try { await downloadBlob(isRepo ? apiBase : apiBase + "/export", `octoscan-${j.id}.json`, true); } catch (e) { banner.innerHTML = `<div class="banner error">Export failed: ${esc(e.message)}</div>`; } b.disabled = false; });
+      mkBtn("Text report", false, async (ev) => { const b = ev.currentTarget; b.disabled = true; try { await downloadBlob(apiBase + "/report", `octoscan-${j.id}.txt`, false); } catch (e) { banner.innerHTML = `<div class="banner error">Export failed: ${esc(e.message)}</div>`; } b.disabled = false; });
+      mkBtn("Export PDF", true, () => buildPrintReport(j, counts, score));
       mkBtn("AI triage", true, async (ev) => {
-        const btn = ev.currentTarget;
-        btn.disabled = true;
-        btn.textContent = "AI working…";
+        const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "AI working…";
         try {
-          const res = await fetch(apiBase + "/ai-analyze", { method: "POST", headers });
-          if (!res.ok) {
-            banner.innerHTML = `<div class="banner error">AI triage failed: ${esc((await res.text()).slice(0, 250))}</div>`;
-          } else {
-            job = await res.json();
-            render(job);
-          }
-        } catch (e) {
-          banner.innerHTML = `<div class="banner error">AI triage failed: connection error.</div>`;
-        }
-        btn.disabled = false;
-        btn.textContent = "AI triage";
+          const res = await fetch(apiBase + "/ai-analyze", { method: "POST", headers: headers() });
+          if (!res.ok) banner.innerHTML = `<div class="banner error">AI triage failed: ${esc((await res.text()).slice(0,250))}</div>`;
+          else { job = await res.json(); render(job); }
+        } catch (e) { banner.innerHTML = `<div class="banner error">AI triage failed: connection error.</div>`; }
+        btn.disabled = false; btn.textContent = "AI triage";
       });
       filtersEl.style.display = "flex";
 
-      // Top-fix strip: first 5 actionable findings (backend sorts by
-      // severity then CVSS), linking down to the full rows as drill-down.
       const topBox = document.getElementById("topfix");
-      const actionable = (j.findings || []).filter(f => f.severity && f.severity !== "info").slice(0, 5);
       if (actionable.length) {
-        topBox.innerHTML = `<div class="topfix"><h3>Fix first</h3><ol>`
-          + actionable.map(f => {
-              const score = (f.cvss !== null && f.cvss !== undefined) ? ` · CVSS ${esc(String(f.cvss))}` : "";
-              return `<li><a href="#f-${esc(f.id)}"><b>${esc(f.severity)}</b> — ${esc((f.title || "").slice(0, 110))}${score}</a></li>`;
-            }).join("") + `</ol></div>`;
-      } else {
-        topBox.innerHTML = "";
-      }
+        topBox.innerHTML = `<div class="topfix"><h3 style="margin:0 0 6px;font-size:13px;">Fix first — top ${Math.min(5, actionable.length)}</h3><ol style="margin:4px 0 2px;padding-left:20px;">`
+          + actionable.slice(0,5).map(f => { const s = (f.cvss ?? null) !== null ? ` · CVSS ${esc(String(f.cvss))}` : ""; return `<li><a style="color:var(--text);text-decoration:none;" href="#f-${esc(f.id)}"><b>${esc(f.severity)}</b> — ${esc((f.title || "").slice(0,110))}${s}</a><div style="color:var(--muted);font-size:12px;">${esc((f.recommendation || "").slice(0,160))}</div></li>`; }).join("") + `</ol></div>`;
+      } else topBox.innerHTML = "";
 
-      const aiBox = document.getElementById("ai-result");
-      aiBox.innerHTML = "";
+      const aiBox = document.getElementById("ai-result"); aiBox.innerHTML = "";
       const aiFinding = (j.findings || []).find(f => f.scanner === "ai");
-      if (j.ai && j.ai.summary) {
-        aiBox.innerHTML = `<div class="ai-panel"><h3>AI triage <span class="model">· ${esc(j.ai.model || j.ai.provider || "")}</span></h3>`
-          + `<p>${esc(j.ai.summary)}</p>`
-          + ((j.ai.prioritized_fixes || []).length ? `<ul>${j.ai.prioritized_fixes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
-          + (j.ai.false_positive_notes ? `<div class="fp" style="font-size:12.5px;color:var(--muted);">On false positives: ${esc(j.ai.false_positive_notes)}</div>` : "")
-          + `</div>`;
-      } else if (aiFinding) {
-        aiBox.innerHTML = `<div class="ai-panel"><h3>AI triage</h3><p>${esc(aiFinding.description || "")}</p></div>`;
-      }
+      if (j.ai && j.ai.summary) aiBox.innerHTML = `<div class="banner busy" style="border-left:4px solid var(--accent);"><b>AI triage</b> <span style="color:var(--muted);">· ${esc(j.ai.model || j.ai.provider || "")}</span><br/>${esc(j.ai.summary)}${(j.ai.prioritized_fixes||[]).length ? `<ul>${j.ai.prioritized_fixes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div>`;
+      else if (aiFinding) aiBox.innerHTML = `<div class="banner busy"><b>AI triage</b><br/>${esc(aiFinding.description || "")}</div>`;
 
       const visible = (j.findings || []).filter(f => {
         if (activeSev === "hide-info" && f.severity === "info") return false;
@@ -298,76 +322,94 @@
         const scope = ((f.raw || {}).scope) || "runtime";
         if (activeScope === "runtime" && scope === "dev") return false;
         if (activeScope === "dev" && scope !== "dev") return false;
+        if (query) { const hay = `${f.title} ${f.description} ${f.location} ${f.cve||""} ${f.scanner}`.toLowerCase(); if (!hay.includes(query)) return false; }
         return true;
       });
-      const manifests = visible.filter(f => f.scanner === "ai-code-review" && (f.title || "").indexOf("AI review manifest") === 0);
-      const rest = visible.filter(f => !(f.scanner === "ai-code-review" && (f.title || "").indexOf("AI review manifest") === 0));
-      const byScanner = {};
-      rest.forEach(f => { (byScanner[f.scanner] = byScanner[f.scanner] || []).push(f); });
-
-      const resultsEl = document.getElementById("results");
-      resultsEl.innerHTML = "";
-      manifests.forEach(m => {
-        const d = document.createElement("details");
-        d.className = "manifest";
-        const lines = ((m.raw || {}).manifest || []).map(x => esc(x)).join("\n");
-        d.innerHTML = `<summary>${esc(m.title)}</summary><pre>${lines || esc(m.description || "")}</pre>`;
-        resultsEl.appendChild(d);
-      });
-      Object.keys(byScanner).sort((a, b) => {
-        if (a === "ai-code-review") return -1;
-        if (b === "ai-code-review") return 1;
-        return a.localeCompare(b);
-      }).forEach(scanner => {
+      const byScanner = {}; visible.forEach(f => { (byScanner[f.scanner] = byScanner[f.scanner] || []).push(f); });
+      const resultsEl = document.getElementById("results"); resultsEl.innerHTML = "";
+      Object.keys(byScanner).sort().forEach(scanner => {
         const findings = byScanner[scanner];
-        const section = document.createElement("div");
-        section.className = "finding-group";
-        const head = document.createElement("button");
-        head.className = "finding-head";
+        const section = document.createElement("div"); section.className = "finding-group";
+        const head = document.createElement("button"); head.className = "finding-head";
         head.innerHTML = `<span class="scanner">${esc(scanner)}</span><span class="count">${findings.length}</span><span class="chev">▾</span>`;
-        const body = document.createElement("div");
-        body.className = "finding-body open";
-        head.addEventListener("click", () => {
-          body.classList.toggle("open");
-          head.querySelector(".chev").textContent = body.classList.contains("open") ? "▾" : "▸";
-        });
-        const table = document.createElement("table");
-        table.className = "findings";
+        const body = document.createElement("div"); body.className = "finding-body open";
+        head.addEventListener("click", () => { body.classList.toggle("open"); head.querySelector(".chev").textContent = body.classList.contains("open") ? "▾" : "▸"; });
+        const table = document.createElement("table"); table.className = "findings";
         table.innerHTML = `<thead><tr><th style="width:90px;">Severity</th><th>Finding</th><th>Location</th><th style="width:26%;">Recommended fix</th></tr></thead>`;
         const tbody = document.createElement("tbody");
         findings.forEach(f => {
-          const tr = document.createElement("tr");
-          tr.id = "f-" + f.id;
+          const tr = document.createElement("tr"); tr.id = "f-" + f.id;
           const raw = f.raw || {};
-          const merged = raw.merged_count > 1
-            ? `<span class="merged-tag" style="display:inline-block;font-size:11px;font-weight:600;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;" title="${esc((raw.merged_sources || []).join(", "))}">×${raw.merged_count} merged</span>` : "";
           const metaBits = [];
           if (f.cvss !== null && f.cvss !== undefined) metaBits.push("CVSS " + esc(String(f.cvss)));
-          (f.cwe || []).forEach(c => metaBits.push(esc(c)));
-          (f.owasp || []).forEach(o => metaBits.push(esc(o)));
-          if (raw.scope && raw.scope !== "runtime") metaBits.push("scope: " + esc(raw.scope));
+          (f.cwe || []).forEach(c => metaBits.push(esc(c))); (f.owasp || []).forEach(o => metaBits.push(esc(o)));
           const meta = metaBits.length ? `<div class="f-meta">${metaBits.join(" · ")}</div>` : "";
-          tr.innerHTML = `<td><span class="sev ${f.severity}">${f.severity}</span></td>`
-            + `<td><span class="f-title">${esc(f.title)}</span>${merged}${meta}`
-            + `<div class="f-desc">${esc((f.description || "").slice(0, 400))}</div>`
-            + (f.evidence ? `<div class="f-ev">${esc(f.evidence.slice(0, 300))}</div>` : "")
-            + (f.cve ? `<div class="f-ev">${esc(f.cve)}</div>` : "") + `</td>`
-            + `<td><span class="f-loc">${esc(f.location)}</span></td>`
-            + `<td>${esc(f.recommendation || "—")}</td>`;
+          tr.innerHTML = `<td><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span></td>`
+            + `<td><span class="f-title">${esc(f.title)}</span>${meta}<div class="f-desc">${esc((f.description || "").slice(0,400))}</div>${f.evidence ? `<div class="f-ev">${esc(f.evidence.slice(0,300))}</div>` : ""}${f.cve ? `<div class="f-ev">${esc(f.cve)}</div>` : ""}<div style="margin-top:6px;"><button class="btn mini" data-copy="${esc(f.cve || f.location || f.title)}">Copy</button></div></td>`
+            + `<td><span class="f-loc">${esc(f.location)}</span></td><td>${esc(f.recommendation || "—")}</td>`;
           tbody.appendChild(tr);
         });
-        table.appendChild(tbody);
-        body.appendChild(table);
-        section.appendChild(head);
-        section.appendChild(body);
-        resultsEl.appendChild(section);
+        table.appendChild(tbody); body.appendChild(table); section.appendChild(head); section.appendChild(body); resultsEl.appendChild(section);
       });
-      if (!resultsEl.hasChildNodes()) {
-        resultsEl.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;color:var(--muted);">No findings match this filter.</div>`;
-      }
+      resultsEl.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", (e) => { e.stopPropagation(); navigator.clipboard.writeText(b.dataset.copy || "").catch(() => {}); b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1200); }));
+      if (!resultsEl.hasChildNodes()) resultsEl.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;color:var(--muted);">No findings match this filter.</div>`;
     }
-
     load();
+  </script>
+  <script>
+    document.getElementById("collapse-btn").addEventListener("click", () => document.body.classList.toggle("side-min"));
+    document.getElementById("burger").addEventListener("click", () => document.body.classList.toggle("side-open"));
+    document.getElementById("scrim").addEventListener("click", () => document.body.classList.remove("side-open"));
+    const spyLinks = [...document.querySelectorAll("#sidebar [data-spy]")];
+    const spyObs = new IntersectionObserver((es) => es.forEach(e => {
+      if (e.isIntersecting) spyLinks.forEach(l => l.classList.toggle("active", l.dataset.spy === e.target.id));
+    }), { rootMargin: "-30% 0px -60% 0px" });
+    ["exec", "topfix", "results"].forEach(id => { const el = document.getElementById(id); if (el) spyObs.observe(el); });
+    const pal = document.getElementById("palette"), palIn = document.getElementById("palette-input"), palList = document.getElementById("palette-list");
+    let palSel = 0, palItems = [];
+    function clickAction(label) {
+      const btns = [...document.querySelectorAll("#counts .summary-actions button")];
+      const b = btns.find(x => x.textContent.trim().toLowerCase() === label);
+      if (b) b.click();
+    }
+    function palActions() {
+      return [
+        { t: "Export: PDF report", k: "export", fn: () => clickAction("export pdf") },
+        { t: "Export: JSON", k: "export", fn: () => clickAction("export json") },
+        { t: "Export: text report", k: "export", fn: () => clickAction("text report") },
+        { t: "Run: AI triage", k: "ai", fn: () => clickAction("ai triage") },
+        { t: "Filter: hide info", k: "filter", fn: () => document.querySelector('.fbtn[data-sev="hide-info"]').click() },
+        { t: "Filter: show all severities", k: "filter", fn: () => document.querySelector('.fbtn[data-sev="all"]').click() },
+        { t: "Filter: critical only", k: "filter", fn: () => document.querySelector('.fbtn[data-sev="critical"]').click() },
+        { t: "Filter: high only", k: "filter", fn: () => document.querySelector('.fbtn[data-sev="high"]').click() },
+        { t: "Scope: runtime only", k: "filter", fn: () => document.querySelector('.fbtn.scope[data-scope="runtime"]').click() },
+        { t: "View: expand all groups", k: "view", fn: () => document.getElementById("expand-all").click() },
+        { t: "View: collapse all groups", k: "view", fn: () => document.getElementById("collapse-all").click() },
+        { t: "Focus: search findings", k: "view", fn: () => document.getElementById("q").focus() },
+        { t: "Go: all scans", k: "nav", fn: () => location.href = "/" },
+      ];
+    }
+    function palRender() {
+      const q = palIn.value.toLowerCase();
+      palItems = palActions().filter(a => a.t.toLowerCase().includes(q));
+      palList.innerHTML = palItems.map((a,i) => `<button class="${i===0?"sel":""}" data-i="${i}">${a.t}<span class="k">${a.k}</span></button>`).join("") || `<div class="empty">No match.</div>`;
+      palList.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { palClose(); palItems[+b.dataset.i].fn(); }));
+      palSel = 0;
+    }
+    function palOpen() { pal.classList.add("open"); palIn.value = ""; palRender(); setTimeout(() => palIn.focus(), 30); }
+    function palClose() { pal.classList.remove("open"); }
+    document.getElementById("palette-btn").addEventListener("click", palOpen);
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); pal.classList.contains("open") ? palClose() : palOpen(); }
+      if (e.key === "Escape") palClose();
+      if (pal.classList.contains("open") && ["ArrowDown","ArrowUp","Enter"].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === "Enter" && palItems[palSel]) { palClose(); palItems[palSel].fn(); }
+        else { palSel = (palSel + (e.key === "ArrowDown" ? 1 : -1) + palItems.length) % Math.max(1, palItems.length);
+          palList.querySelectorAll("button").forEach((b,i) => b.classList.toggle("sel", i === palSel)); }
+      }
+    });
+    palIn.addEventListener("input", palRender);
   </script>
 </body>
 </html>
