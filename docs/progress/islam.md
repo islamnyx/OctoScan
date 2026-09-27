@@ -59,3 +59,8 @@
 - State: works — 74 pytest pass; headless Chromium on /agent?demo=1 with the real CSP: NOT READY, 3 verified + 3 not verifiable, no console errors; live API run through the page not yet done (no AI provider on this machine)
 - Next: save Brev provider in the dashboard -> live NodeGoat run through /agent; then merge hack/islam-agent into web_scanners; after 15:45 project-card + disclosure (B's docs, now ours)
 - Decisions: B's files are owned by Islam from now on (B never pushed); pushed own branch only, web_scanners untouched on origin
+
+## 15:26 - Full E2E with a dummy Brev (vLLM-like) model
+- Done: fake OpenAI-compatible server answering by json_schema name (Decision_*, TriageBatch, PatchReply, StoryReply) + sandbox app on :8001 (DATA_DIR sandbox, AI_PROVIDER=brev) -> POST /api/agent-scan NodeGoat
+- State: works — done in ~80 s: fresh scan 215 -> 30 (20 code + 10 deps), triage 20 real / 10 FP, eval patch VERIFIED 3->0, zapApiKey VERIFIED 2->0, weak open-redirect patch NOT FIXED twice (retry path), 3 OSV advice null, not_ready; 19 calls all with structured output, stats.model = dummy id; /agent?run=<id> renders it; clone untouched
+- Next: real Brev provider in the dashboard -> same run on the real model; merge into web_scanners
