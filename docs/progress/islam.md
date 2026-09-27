@@ -35,3 +35,9 @@
 - State: works; still NO AI key configured anywhere -> first step for everyone (.env AI_* = NVIDIA)
 - Next: Islam -> hack/islam-agent (ai_agent.py loop, ai_fix.py fix+verify, /api/agent-scan); A -> prefilter+triage+eval; B -> story + agent.html + docs
 - Decisions: integration branch is web_scanners (origin/main left at 5fc04ea); CUT learn-rule, Brev, ZAP follow-ups
+
+## 14:20 - ai_fix + agent models (hack/islam-agent, 3819274)
+- Done: app/ai_fix.py (one call_json -> PatchReply line-range replacement in a ~40-line window, difflib diff, patch on data/agent/<run>/<fix>/{before,after} copies, re-run ONLY the fired rule: semgrep r/<check> or semgrep-rules/, gitleaks rule+merged rules); AgentRun/Step/Finding/Fix/Stats models
+- State: works — 40 pytest pass; real NodeGoat: eval 3->0 verified, zapApiKey 2->0 verified, broken patch -> verified false, clone untouched
+- Next: ai_agent.py loop + /api/agent-scan
+- Decisions: verified null also when no re-scan ran (AI down, patch rejected, rule doesn't fire on original); main model = Brev vLLM (provider "brev", json_schema structured output)
