@@ -239,3 +239,75 @@ class AIConfigResponse(BaseModel):
     model: str = ""
     has_key: bool = False
     configured: bool = False
+
+
+# ---- AI agent (docs/NEXT.md "Islam: API (frozen)") ----
+# Frozen keys are exact; extra fields are additive (the page ignores them).
+
+
+class AgentScanRequest(BaseModel):
+    repo_url: str = Field(max_length=512)
+    target_url: str | None = Field(default=None, max_length=512)
+
+
+class AgentStep(BaseModel):
+    n: int
+    thought: str = ""
+    tool: str
+    result: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: str = "running"  # running | done | error
+    ms: int = 0
+
+
+class AgentFinding(BaseModel):
+    id: str
+    title: str
+    severity: str
+    file: str | None = None
+    line: int | None = None
+    verdict: str = "review"  # real | false_positive | review
+    confidence: float = 0.0
+    reason: str = ""
+    scanner: str = ""
+
+
+class AgentFix(BaseModel):
+    finding_id: str
+    diff: str = ""
+    explanation: str = ""
+    # true/false only when a semgrep/gitleaks re-scan actually ran;
+    # null = not verifiable (OSV, ZAP, rule unavailable, no patch).
+    verified: bool | None = None
+    file: str | None = None
+    rule: str = ""
+    note: str = ""
+
+
+class AgentStats(BaseModel):
+    model: str = ""
+    calls: int = 0
+    median_latency_ms: int = 0
+    fallback_used: bool = False
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+class AgentRun(BaseModel):
+    run_id: str = Field(default_factory=lambda: uuid4().hex[:16])
+    status: str = "running"  # running | done | failed
+    repo_url: str
+    target_url: str | None = None
+    scan_id: str | None = None
+    phase: str = "queued"
+    current: str = ""
+    steps: list[AgentStep] = Field(default_factory=list)
+    findings: list[AgentFinding] = Field(default_factory=list)
+    fixes: list[AgentFix] = Field(default_factory=list)
+    verdict: str | None = None  # ready | not_ready
+    blockers: list[str] = Field(default_factory=list)
+    attack_story: str = ""
+    stats: AgentStats = Field(default_factory=AgentStats)
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: datetime | None = None
