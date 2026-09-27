@@ -76,3 +76,8 @@
 - State: run 1 (d80810d432c1460c) done in 7.5 min, 22 calls, median 16.6 s, qwen3:32b, triage 25 real/4 FP/1 review, not_ready + real attack story; BUT all patches "not verifiable": my 15:00 gitignore of data/agent/ made semgrep skip the copies -> fixed with --no-git-ignore (ef2947b, regression test, 75 pass); run 2 started 16:04
 - Next: confirm >=1 verified fix on run 2, record it as the replay; merge + push web_scanners
 - Decisions: docs must say Brev runs Ollama (qwen3:32b), not vLLM/Nemotron; tunnel must stay up during the demo
+
+## 16:13 - main = web_scanners = 869ced9 (pushed)
+- Done: dashboard link to /agent ("AI Agent · results" in app/static/index.html + frontend/index.html), GET /api/agent-scans + "Recent AI runs" on /agent, replay file = real Brev run 6450f718 (qwen3:32b, 22 calls, median 13.5 s, 2 fixes verified by re-scan, 1 $where patch rejected as breaking the file); merged A (be36f24) + main (README); main fast-forwarded to web_scanners
+- State: works — 75 pytest pass; app on :8000 serves /, /agent, /api/agent-scans; Brev via SSH tunnel :11436
+- Next: README says "Nemotron via NIM" but Brev serves Ollama qwen3:32b -> fix claim; keep the tunnel up during the demo; project card + disclosure
