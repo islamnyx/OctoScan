@@ -107,7 +107,7 @@ start_zap() {
   # ("file already exists") and leaves the daemon API-less — clear it first.
   rm -f "${HOME}/.ZAP/session/clean.session"* 2>/dev/null
   if [ -x "$ZAP_BIN" ]; then
-    nohup "$ZAP_BIN" -daemon -port "$ZAP_PORT" -host 127.0.0.1 \
+    nohup "$ZAP_BIN" -daemon -silent -port "$ZAP_PORT" -host 127.0.0.1 \
       -newsession clean \
       -config "api.key=${ZAP_API_KEY}" \
       -config api.disablekey=false \
@@ -115,7 +115,7 @@ start_zap() {
       -config callhome.callHome=false \
       > logs/zap-run.log 2>&1 &
   elif [ -f "$ZAP_JAR" ]; then
-    nohup java -Xmx4g -jar "$ZAP_JAR" -daemon -port "$ZAP_PORT" -host 127.0.0.1 \
+    nohup java -Xmx4g -jar "$ZAP_JAR" -daemon -silent -port "$ZAP_PORT" -host 127.0.0.1 \
       -newsession clean \
       -config "api.key=${ZAP_API_KEY}" \
       -config api.disablekey=false \
@@ -128,11 +128,13 @@ start_zap() {
     return 1
   fi
   ZAP_PID="$!"
-  for _ in $(seq 1 60); do
+  # 180s health wait (was 120s): on first start ZAP downloads ~35 add-on
+  # updates; killing it mid-download corrupts ~/.ZAP/plugin/*.zap.
+  for _ in $(seq 1 90); do
     zap_healthy && { echo "ZAP healthy on ${ZAP_URL}"; return 0; }
     sleep 2
   done
-  echo "ERROR: ZAP did not become healthy in ~120s — see logs/zap-run.log" >&2
+  echo "ERROR: ZAP did not become healthy in ~180s — see logs/zap-run.log" >&2
   return 1
 }
 

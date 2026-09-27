@@ -20,11 +20,13 @@ SEED_PATHS = (
     "/rest/products/search?q=ZapTest",
     "/rest/products/search?q='",
     "/search?q=ZapTest",
-    "/#/search?q=ZapTest",
     "/rest/user/login",
     "/api",
     "/ftp",
 )
+# NOTE: "/#/search?q=ZapTest" was removed (2026-09-27): URLs containing '#'
+# are SPA routes that return index.html, never the real SQLi sink, so they
+# only burn ascan budget. _select_ascan_targets also drops '#' URLs.
 # Noise filter: ZAP spider often flags bundled static assets.
 # Keep narrow to avoid hiding real findings.
 NOISY_PATH_SUBSTRINGS = ("assets/public/assets/public",)
@@ -162,51 +164,97 @@ class ZapScanner(BaseScanner):
             # cap below let all 20 targets get a turn without flooding the target.
             ascan_budget = min(settings.zap_ascan_budget_seconds, max(300, settings.scan_timeout_seconds // 2))
             ascan_deadline = time.time() + ascan_budget
+            # Per-target cap (fix B, 2026-09-27): split the shared budget
+            # across targets (min 60s) so one slow host can no longer eat the
+            # whole budget. Enforced BOTH inside ZAP (max scan duration) and
+            # by our poll timeout (cap + 20s).
+            per_target_cap = max(60, int(ascan_budget // max(1, len(ascan_targets)))) if ascan_targets else 60
+            self._activity(f"ascan plan: {len(ascan_targets)} target(s), {ascan_budget}s shared budget, {per_target_cap}s per-target cap")
             # Gentle but thorough (2026-09-16): throttle the shared daemon
             # for this scan, restore afterwards in finally.
             prev_throttle = self._throttle_ascan(client, base, api_key)
+            prev_max_dur = self._set_max_scan_duration(client, base, api_key, per_target_cap)
+            # Every ascan id we start (fix C): stopped + removed in finally
+            # so timed-out scans never pile up as orphan RUNNING scans.
+            started_ids: list[str] = []
+            skip_notes: list[str] = []
             try:
-                try:
-                    for i, t in enumerate(ascan_targets, 1):
-                        self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
-                        remaining = ascan_deadline - time.time()
-                        if remaining < 30:
-                            ascan_skipped = (
-                                f"ascan budget exhausted after {scanned}/{len(ascan_targets)} targets "
-                                f"({int(ascan_budget)}s shared budget); passive/spider results for the rest"
+                for i, t in enumerate(ascan_targets, 1):
+                    self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
+                    remaining = ascan_deadline - time.time()
+                    if remaining < 30:
+                        skip_notes.append(
+                            f"ascan budget exhausted after {scanned}/{len(ascan_targets)} targets "
+                            f"({int(ascan_budget)}s shared budget); passive/spider results for the rest"
+                        )
+                        break
+                    cap = int(min(per_target_cap, remaining))
+                    ascan_id = ""
+                    try:
+                        try:
+                            ascan = client.get(
+                                f"{base}/JSON/ascan/action/scan/",
+                                params={
+                                    "apikey": api_key,
+                                    "url": t,
+                                    "recurse": "true" if settings.zap_ascan_recurse else "false",
+                                },
                             )
-                            break
-                        ascan = client.get(
-                            f"{base}/JSON/ascan/action/scan/",
-                            params={
-                                "apikey": api_key,
-                                "url": t,
-                                "recurse": "true" if settings.zap_ascan_recurse else "false",
-                            },
-                        )
-                        ascan.raise_for_status()
+                        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                            # Fix A: only "daemon unreachable" aborts the loop.
+                            if not self._daemon_alive(client, base, api_key):
+                                raise RuntimeError(f"ZAP daemon unreachable, aborting ascan loop: {exc}") from exc
+                            skip_notes.append(f"{t[:60]}: connection blip (daemon alive), continued")
+                            continue
+                        try:
+                            ascan.raise_for_status()
+                        except httpx.HTTPStatusError as exc:
+                            code = exc.response.status_code if exc.response is not None else 0
+                            safe = re.sub(r"apikey=[^&\s'\"]+", "apikey=***", str(exc))[:200]
+                            if code == 400 or "url_not_found" in safe.lower():
+                                skip_notes.append(f"{t[:60]}: skipped ({safe})")
+                                continue
+                            if not self._daemon_alive(client, base, api_key):
+                                raise RuntimeError(f"ZAP daemon unreachable (HTTP {code}), aborting ascan loop") from exc
+                            skip_notes.append(f"{t[:60]}: HTTP {code}, continued ({safe})")
+                            continue
                         ascan_id = str(ascan.json().get("scan") or "")
-                        self._wait_scan(
-                            client, f"{base}/JSON/ascan/view/status/", api_key, ascan_id,
-                            timeout_s=int(min(settings.zap_ascan_per_target_seconds, remaining)),
-                        )
+                        if not ascan_id:
+                            skip_notes.append(f"{t[:60]}: ZAP returned no scan id, continued")
+                            continue
+                        started_ids.append(ascan_id)
+                        try:
+                            self._wait_scan(
+                                client, f"{base}/JSON/ascan/view/status/", api_key, ascan_id,
+                                timeout_s=cap + 20,
+                            )
+                        except RuntimeError as exc:
+                            # Fix A: per-target timeout -> stop THIS scan,
+                            # record the reason, continue with the next target.
+                            self._stop_ascan(client, base, api_key, ascan_id)
+                            skip_notes.append(f"{t[:60]}: ascan timed out at cap {cap}s, stopped, continued")
+                            continue
                         scanned += 1
-                    if not ascan_targets:
-                        ascan_skipped = "no dynamic targets in tree; passive/spider results only"
-                except Exception as exc:
-                    # Timeout or url_not_found: keep partial ascan results and
-                    # fall back to passive/spider alerts instead of failing the
-                    # whole scanner (last scan lost all ZAP findings on a 60s
-                    # per-target timeout). Only unknown errors still raise.
-                    msg = str(exc).lower()
-                    if "timed out" in msg or "url_not_found" in msg or "400" in msg:
-                        # httpx errors embed the request URL incl. ?apikey=… —
-                        # never persist the key in job.json/coverage.
-                        safe = re.sub(r"apikey=[^&\s'\"]+", "apikey=***", str(exc))
-                        ascan_skipped = safe[:200] + f" (partial: {scanned}/{len(ascan_targets)} targets scanned)"
-                    else:
+                    except RuntimeError:
                         raise
+                    except Exception as exc:
+                        # One weird target must never kill the other 19:
+                        # stop its scan (if any), record, continue.
+                        self._stop_ascan(client, base, api_key, ascan_id)
+                        safe = re.sub(r"apikey=[^&\s'\"]+", "apikey=***", str(exc))[:200]
+                        skip_notes.append(f"{t[:60]}: {safe}, continued")
+                        continue
+                if not ascan_targets:
+                    skip_notes.append("no dynamic targets in tree; passive/spider results only")
+                if skip_notes:
+                    # httpx errors embed the request URL incl. ?apikey=… —
+                    # never persist the key in job.json/coverage.
+                    safe_notes = [re.sub(r"apikey=[^&\s'\"]+", "apikey=***", n) for n in skip_notes]
+                    ascan_skipped = f"(partial: {scanned}/{len(ascan_targets)} targets scanned) " + "; ".join(safe_notes)
+                    ascan_skipped = ascan_skipped[:1000]
             finally:
+                self._cleanup_ascans(client, base, api_key, started_ids)
+                self._restore_max_scan_duration(client, base, api_key, prev_max_dur)
                 self._restore_throttle(client, base, api_key, prev_throttle)
             alerts = client.get(
                 f"{base}/JSON/core/view/alerts/",
@@ -222,6 +270,7 @@ class ZapScanner(BaseScanner):
                 "ascan_scanned": scanned,
                 "ascan_targets": len(ascan_targets),
                 "ascan_cap": settings.zap_ascan_max_targets,
+                "ascan_per_target_cap": per_target_cap,
                 "ascan_recurse": settings.zap_ascan_recurse,
                 "ascan_skipped": ascan_skipped,
             }
@@ -283,6 +332,89 @@ class ZapScanner(BaseScanner):
             client.get(
                 f"{base}/JSON/ascan/action/setOptionDelayInMs/",
                 params={"apikey": api_key, "Integer": prev[1]},
+            )
+        except Exception:
+            pass
+
+    def _daemon_alive(self, client: httpx.Client, base: str, api_key: str) -> bool:
+        """Authed liveness probe: True iff the daemon answers with our key."""
+        try:
+            r = client.get(f"{base}/JSON/core/view/version/", params={"apikey": api_key}, timeout=10.0)
+            return r.status_code == 200 and '"version"' in r.text
+        except Exception:
+            return False
+
+    def _stop_ascan(self, client: httpx.Client, base: str, api_key: str, scan_id: str) -> None:
+        """Stop one ascan by id. Best-effort, never raises."""
+        if not scan_id:
+            return
+        try:
+            client.get(
+                f"{base}/JSON/ascan/action/stop/",
+                params={"apikey": api_key, "scanId": scan_id},
+            )
+        except Exception:
+            pass
+
+    def _cleanup_ascans(self, client: httpx.Client, base: str, api_key: str, scan_ids: list[str]) -> None:
+        """Stop + remove every ascan we started (fix C, 2026-09-27).
+
+        Timed-out ascans left RUNNING pile up across scans and wedge the
+        daemon; removing them keeps back-to-back scans healthy. Best-effort.
+        """
+        for sid in scan_ids:
+            try:
+                client.get(
+                    f"{base}/JSON/ascan/action/stop/",
+                    params={"apikey": api_key, "scanId": sid},
+                )
+            except Exception:
+                pass
+            try:
+                client.get(
+                    f"{base}/JSON/ascan/action/removeScan/",
+                    params={"apikey": api_key, "scanId": sid},
+                )
+            except Exception:
+                pass
+
+    def _set_max_scan_duration(
+        self, client: httpx.Client, base: str, api_key: str, cap_s: int
+    ) -> int | None:
+        """Enforce the per-target cap inside ZAP (fix B). Returns prev mins.
+
+        ZAP takes minutes (min 1); our poll timeout (cap + 20s) is the
+        precise guard. None = unsupported daemon, poll cap still applies.
+        """
+        prev: int | None = None
+        try:
+            r = client.get(
+                f"{base}/JSON/ascan/view/optionMaxScanDurationInMins/",
+                params={"apikey": api_key},
+            )
+            prev = int(r.json().get("MaxScanDurationInMins", 0)) or None
+        except Exception:
+            pass
+        try:
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionMaxScanDurationInMins/",
+                params={"apikey": api_key, "Integer": max(1, -(-cap_s // 60))},
+            )
+            self._activity(f"ascan max duration capped at {max(1, -(-cap_s // 60))} min/target (was {prev})")
+        except Exception:
+            self._activity("ascan max-duration option unsupported, poll cap only")
+        return prev
+
+    def _restore_max_scan_duration(
+        self, client: httpx.Client, base: str, api_key: str, prev: int | None
+    ) -> None:
+        """Restore the daemon's max scan duration saved by _set_max_scan_duration."""
+        if prev is None:
+            return
+        try:
+            client.get(
+                f"{base}/JSON/ascan/action/setOptionMaxScanDurationInMins/",
+                params={"apikey": api_key, "Integer": prev},
             )
         except Exception:
             pass
@@ -432,10 +564,12 @@ class ZapScanner(BaseScanner):
     def _select_ascan_targets(self, client: httpx.Client, base: str, api_key: str, target: str, seed: str) -> list[str]:
         """Pick capped active-scan targets: injectable URLs first.
 
-        Priority: URLs with query params (?q= → SQLi/XSS sink), then
-        /rest/* /api/* routes, then seed, then remaining dynamic URLs.
-        Filters out static assets (.js/.css/images/fonts/.map) which burn
-        ascan time/memory but never produce SQLi/XSS/etc. alerts.
+        Priority (fix D, 2026-09-27): URLs with a query string AND a
+        /rest/ or /api/ path rank first (the real SQLi sink is
+        /rest/products/search?q=); bare SPA routes (/#/..., /search?q=)
+        rank last. URLs containing '#' (client-side SPA routes serving
+        index.html) are dropped outright. Static assets (.js/.css/images/
+        fonts/.map) are excluded — they never yield ascan vulns.
         """
         try:
             r = client.get(f"{base}/JSON/core/view/urls/", params={"apikey": api_key, "baseurl": target})
@@ -443,17 +577,24 @@ class ZapScanner(BaseScanner):
             urls = [u for u in (r.json().get("urls") or []) if isinstance(u, str) and u]
         except Exception:
             return [seed]
-        dynamic = [u for u in urls if not u.lower().split("?")[0].endswith(STATIC_EXTENSIONS)]
+        dynamic = [
+            u for u in urls
+            if "#" not in u and not u.lower().split("?")[0].endswith(STATIC_EXTENSIONS)
+        ]
 
         def _rank(u: str) -> int:
-            if "?" in u:
-                return 0
             low = u.lower()
-            if "/rest/" in low or "/api/" in low:
+            has_q = "?" in u
+            restful = "/rest/" in low or "/api/" in low
+            if has_q and restful:
+                return 0
+            if has_q:
                 return 1
-            if u == seed:
+            if restful:
                 return 2
-            return 3
+            if u == seed:
+                return 3
+            return 4
 
         dynamic_sorted = sorted(set(dynamic), key=_rank)
         # Seed first, then tree order, deduped, capped.
