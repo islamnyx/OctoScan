@@ -238,3 +238,28 @@ def test_real_semgrep_with_relative_run_dir(tmp_path, model, monkeypatch):
     monkeypatch.chdir(tmp_path)
     fix = ai_fix.fix_finding(f, wd, tmp_path.relative_to(tmp_path) / "run")
     assert fix.verified is True, fix.note
+
+
+@pytest.mark.skipif(not (shutil.which("semgrep") and shutil.which("gitleaks") and shutil.which("git")),
+                    reason="semgrep/gitleaks/git not installed")
+def test_real_rescan_inside_gitignored_run_dir(tmp_path, model):
+    # Regression (live Brev run 16:01): run dirs sit in git-ignored data/agent/;
+    # semgrep skipped them -> every fix "not verifiable".
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("data/agent/\n")
+    wd = tmp_path / "src"
+    (wd / "app").mkdir(parents=True)
+    (wd / "app/dao.js").write_text("function q(t) {\n    return { $where: `this.stocks > '${t}'` };\n}\n")
+    (wd / "app/cfg.js").write_text('module.exports = {\n   zapApiKey: "v9dn0balpqas1pcc281tn5ood1",\n};\n')
+    run_dir = tmp_path / "data/agent/run"
+    model["replies"] = [
+        {"start_line": 2, "end_line": 2, "explanation": "operator query",
+         "replacement": "    return { stocks: { $gt: parseInt(t, 10) } };"},
+        {"start_line": 2, "end_line": 2, "explanation": "env", "replacement": "   zapApiKey: process.env.ZAP_API_KEY,"},
+    ]
+    sem = ai_fix.fix_finding(finding(rel="app/dao.js", line=2, file="app/dao.js",
+                                     check="semgrep-rules.nodegoat-nosql-where-interpolation"), wd, run_dir)
+    assert sem.verified is True, sem.note
+    leak = ai_fix.fix_finding(finding(scanner="gitleaks", rel="app/cfg.js", line=2), wd, run_dir)
+    assert leak.verified is True, leak.note

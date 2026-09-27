@@ -179,8 +179,10 @@ def run_semgrep_rule(check: str, fix_dir: Path) -> dict:
     config, rule = _semgrep_config(check)
     fix_dir = fix_dir.resolve()  # cwd=fix_dir below: relative paths would double up
     out = fix_dir / "semgrep.json"
+    # --no-git-ignore: fix dirs live under data/agent/, which is git-ignored
+    # in this repo; without it semgrep scans 0 files and nothing verifies.
     cmd = [settings.semgrep_bin, "--config", config, "--json", "--quiet", "--metrics=off",
-           "--output", str(out), "before", "after"]
+           "--no-git-ignore", "--output", str(out), "before", "after"]
     try:
         proc = subprocess.run(cmd, cwd=fix_dir, capture_output=True, text=True, timeout=VERIFY_TIMEOUT_S)
     except FileNotFoundError:
