@@ -2,7 +2,7 @@
 
 # OctoScan by OctoSec Labs
 
-Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies + optional AI review), get prioritized findings with fix advice on a dark, analyst-grade dashboard.
+Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies + AI review), get prioritized findings with fix advice on a dark, analyst-grade dashboard.
 
 ## What it does
 
