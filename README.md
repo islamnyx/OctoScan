@@ -2,7 +2,7 @@
 
 # OctoScan by OctoSec Labs
 
-Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies), then our **AI agent reasons over every finding: drops the false alarms, writes the fix, re-scans to prove it, and tells you the attack story in plain words**.
+Pre-launch security check for startups. Scan a live web app (DAST) or a codebase (SAST + secrets + dependencies), then our AI agent reasons over every finding: drops the false alarms, writes the fix, re-scans to prove it, and tells you the attack story in plain words.
 
 <p>
   <img src="Presentation/assets/Untitled-removebg-preview.png" height="90" alt="NVIDIA" />
@@ -10,6 +10,15 @@ Pre-launch security check for startups. Scan a **live web app** (DAST) or a **co
 </p>
 
 **Built for the GOMYCODE x NVIDIA hackathon — AI reasoning by NVIDIA Nemotron** (via the NVIDIA NIM API, with a self-hosted vLLM option so code never leaves your infrastructure).
+
+## Security Assessment Toolkit
+
+This repository contains two tools sharing a single codebase:
+
+1. **app/** — web vulnerability scanner (FastAPI dashboard for Nmap/ZAP/testssl.sh/Nikto/Nuclei)
+2. **scan_toolkit/** — mobile app security assessment toolkit (CLI, local-first)
+
+The mobile toolkit focuses on deterministic security scans against client-supplied APK/IPA binaries, normalizes output into a shared finding schema, and layers LLM agents on top for correlation, prioritization, and report writing.
 
 ## Live demo (2 minutes, no setup)
 
@@ -66,6 +75,86 @@ Fixed backbone, AI decides inside each step — raw Python loop, no LangGraph/Cr
 **Dashboard** (`http://127.0.0.1:8000`) — dark OctoSec theme (Charcoal `#1A1A1A`, Signal Orange `#FF6B00`, Space Grotesk + JetBrains Mono):
 - Web / Codebase / AI-provider tabs, per-scan test picker, per-scan AI model picker
 - Results: severity counts, **Fix-first top-5**, severity + scope filters, collapsible per-scanner groups, CVSS/CWE/OWASP on every card, Export JSON + Text report
+
+## scan_toolkit — Mobile Security Assessment CLI
+
+### Architecture
+
+- **Local-first** — runs on the assessor's machine (16-32 GB RAM), no cloud infra
+- **SQLite + SQLAlchemy ORM** — swappable to Postgres via config
+- **Deterministic tools first** — Semgrep, MobSF, apktool, jadx, OSV/Grype, mitmproxy, ZAP
+- **LLM agents layer on top** — structured JSON in/out, never invent findings
+- **Human review gate** — findings must be confirmed before report generation
+
+### Quick start
+
+```bash
+# 1. Clone & enter
+git clone <repo-url>
+cd startup-mvp
+
+# 2. Python 3.11+ virtualenv
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install (editable, with dev/test deps)
+pip install -e ".[dev]"
+
+# 4. Configure
+cp .env.example .env
+# Edit .env — set SCAN_TOOLKIT_ANTHROPIC_API_KEY, tool paths, MobSF key
+
+# 5. Verify
+pytest
+scan-toolkit --help
+```
+
+### CLI commands
+
+| Command | Status | Description |
+|---------|--------|-------------|
+| `scan-toolkit intake create` | Done | Register engagement, store binary/docs/credentials |
+| `scan-toolkit intake validate <id>` | Done | Check completeness, advance to 'scanning' |
+| `scan-toolkit run --engagement <id> --stage static` | Done | Run static analysis pipeline |
+| `scan-toolkit run --engagement <id> --stage sca` | Phase 5 | SCA via OSV.dev/Grype |
+| `scan-toolkit status` | Phase 11 | Show engagement/queue state |
+| `scan-toolkit report <id>` | Phase 10 | Generate report from confirmed findings |
+
+### Data models
+
+Three core ORM models in `scan_toolkit/models.py`:
+
+- **Engagement** — client engagement lifecycle (intake -> scanning -> reviewing -> delivered)
+- **Finding** — normalized vulnerability finding with severity/confidence/CWE/evidence
+- **AttackChain** — correlated chain of findings with combined severity narrative
+
+Plus **IntakeChecklist** for the intake gate (scope agreement, binary, credentials, etc).
+
+### Intermediate representation
+
+Raw tool output is normalized to IR models (`scan_toolkit/intermediate.py`) before LLM processing:
+
+- **IRFinding** — one finding from one tool, pre-LLM (loose types)
+- **IRToolOutput** — envelope for one tool invocation (findings + errors)
+- **StageIR** — complete stage output, serialized to JSON for the LLM agent
+
+### Configuration
+
+All settings use the `SCAN_TOOLKIT_` prefix in `.env` (see `.env.example`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SCAN_TOOLKIT_DATA_DIR` | `./data` | Root for DB + per-engagement artifacts |
+| `SCAN_TOOLKIT_DB_URL` | auto (SQLite) | SQLAlchemy connection string |
+| `SCAN_TOOLKIT_ANTHROPIC_API_KEY` | — | LLM provider (Phase 4+) |
+| `SCAN_TOOLKIT_MAX_CONCURRENT_DYNAMIC_JOBS` | 2 | Job queue limit (Phase 6) |
+| `SCAN_TOOLKIT_APKTOOL_BIN` | `apktool` | apktool binary path |
+| `SCAN_TOOLKIT_JADX_BIN` | `jadx` | jadx binary path |
+| `SCAN_TOOLKIT_SEMGREP_BIN` | `semgrep` | semgrep binary path |
+| `SCAN_TOOLKIT_MOBSF_BASE_URL` | `http://127.0.0.1:8000` | MobSF Docker service |
+| `SCAN_TOOLKIT_MOBSF_API_KEY` | — | MobSF REST API key |
+| `SCAN_TOOLKIT_SEMGREP_EXTRA_CONFIGS` | — | Extra Semgrep configs (comma-separated) |
+| `SCAN_TOOLKIT_TOOL_TIMEOUT_SECONDS` | 600 | Per-tool invocation timeout |
 
 ## Prerequisites
 
@@ -135,11 +224,9 @@ Open http://127.0.0.1:8000
 
 If `API_KEY` is set in `.env`, send header `X-API-Key: <key>` on every `/api/*` call.
 
-Key env vars: `ZAP_API_KEY`, `ALLOW_PRIVATE_TARGETS` (lab scans only), `SCAN_MAX_PARALLEL`, `OSV_MAX_GROUPS` (default 300), `AI_PROVIDER/BASE_URL/API_KEY/MODEL`, `AI_REVIEW_MAX_FILES/BYTES`, `GIT/GITLEAKS/SEMGREP/OSV_BIN`. See `.env.example` for the full list.
-
 ## Project structure
 
-```
+```text
 app/
 ├── main.py               # FastAPI app + routes + text reports
 ├── config.py             # Settings from .env
@@ -169,15 +256,10 @@ app/
     └── fonts/            # Space Grotesk + JetBrains Mono (self-hosted, CSP-safe)
 semgrep-rules/            # Custom logic-flaw rules (NoSQLi/IDOR/redirect/SSRF/XSS)
 data/scans/ data/repos/   # Results + clones (gitignored)
-
+scan_toolkit/             # Mobile app security assessment toolkit (CLI, local-first)
+tests/                    # pytest suite
+data/                     # Local data — DB + per-engagement artifacts (gitignored)
 ```
-
-## Known limits (honest)
-
-- Static scans catch secrets, known CVEs and risky sinks — business-logic flaws (authz/IDOR across files) need the AI pass or manual review. A clean static result does not mean secure (also stated on the dashboard).
-- OSV scope analysis is name-level: a package reachable from both prod and dev counts as runtime.
-- OSV needs network for its database; groups capped at `OSV_MAX_GROUPS`.
-- Gitleaks evidence stores a redacted secret prefix in `job.json`.
 
 ## Roadmap — Mobile APK Scanner (next)
 
@@ -198,8 +280,6 @@ The third scan mode alongside web + codebase, on a dedicated dashboard tab and t
 | `GET` | `/api/apk-scans/{id}` | Details + `summary` |
 | `GET` | `/api/apk-scans/{id}/report` | Plain-text report |
 | `POST` | `/api/apk-scans/{id}/ai-analyze` | AI triage |
-
-Tooling under evaluation: `androguard` (manifest/dex parsing) + `apksigner`/`keytool` (cert info), same scanner interface (`ApkScanner`), same Finding model (adds `cwe`/`owasp` where mappings exist), same dedupe/summary/report pipeline. Storage: `data/apks/` (gitignored), original APK hashed (SHA-256) and retained per-scan with size caps.
 
 ## Contributing
 

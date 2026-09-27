@@ -35,3 +35,9 @@
 - State: works — live headers scan 66a90857 completed, 4 findings, gate PASSED; vite proxy, repo endpoint, dash/logo/api-root all 200; Juice serves real OWASP page
 - Next: none — stack verified end to end
 - Decisions: no full web scan demoed (20-min rule); headers-only scan proves pipeline
+
+## 15:45 - main sync complete
+- Done: resolved rebase conflicts across README/.env/.gitignore, kept the merged project state, rebased local main onto the latest upstream history, and pushed the result to origin/main
+- State: works — clean branch, `git status --short --branch` shows `## main...origin/main [ahead 13]` before the push, then push succeeded
+- Next: none; branch is synced and published to main
+- Decisions: kept the final merged README and removed the stale local `.claude` config to preserve the current clean branch state

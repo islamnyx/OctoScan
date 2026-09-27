@@ -1,0 +1,14 @@
+rules:
+  - id: android-webview-allow-universal-file-access
+    languages: [java]
+    severity: ERROR
+    message: WebView allows file URL access (allowFileAccess /
+      allowUniversalAccessFromFileURLs). A remote-origin page can read local
+      files. Disable file access unless strictly required and sandboxed.
+    pattern-either:
+      - pattern: $W.setAllowUniversalAccessFromFileURLs(true)
+      - pattern: $W.setAllowFileAccess(true)
+      - pattern: $W.setAllowContentAccess(true)
+    metadata:
+      cwe: [CWE-79]
+      category: webview

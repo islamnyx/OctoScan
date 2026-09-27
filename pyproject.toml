@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scan-toolkit"
+version = "0.1.0"
+description = "Local-first mobile app security assessment toolkit (scan_toolkit)."
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "httpx>=0.27",
+    "anthropic>=0.40",
+    # Phase 10 client reports — pure-Python, no system deps (no pandoc needed).
+    "markdown>=3",
+    "python-docx>=1",
+    "reportlab>=4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+scan-toolkit = "scan_toolkit.main:app"
+
+[tool.setuptools]
+packages = ["scan_toolkit", "scan_toolkit.cli", "scan_toolkit.tools", "scan_toolkit.agents"]
+
+[tool.setuptools.package-data]
+scan_toolkit = ["frida_scripts/*.js"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

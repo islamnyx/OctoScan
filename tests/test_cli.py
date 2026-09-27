@@ -1,0 +1,47 @@
+"""Tests for the scan-toolkit CLI stubs."""
+
+import pytest
+from typer.testing import CliRunner
+
+from scan_toolkit.main import app
+
+runner = CliRunner()
+
+
+def test_help_shows_subcommands():
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    for cmd in ["intake", "run", "status", "report"]:
+        assert cmd in result.output
+
+
+def test_intake_help_shows_subcommands():
+    result = runner.invoke(app, ["intake", "--help"])
+    assert result.exit_code == 0
+    for cmd in ["create", "validate"]:
+        assert cmd in result.output
+
+
+def test_run_requires_engagement_flag():
+    result = runner.invoke(app, ["run", "dummy-engagement-id"])
+    assert result.exit_code != 0  # --engagement is an Option now, positional fails
+    assert "--engagement" in result.output
+
+
+def test_status_stub():
+    result = runner.invoke(app, ["status", "--help"])
+    assert result.exit_code == 0
+    assert "--engagement" in result.output
+
+
+def test_report_stub():
+    result = runner.invoke(app, ["report", "--help"])
+    assert result.exit_code == 0
+    assert "--engagement" in result.output
+    assert "--format" in result.output
+
+
+def test_review_stub():
+    result = runner.invoke(app, ["review", "--help"])
+    assert result.exit_code == 0
+    assert "--engagement" in result.output
