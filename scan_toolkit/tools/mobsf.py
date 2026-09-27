@@ -33,9 +33,18 @@ class MobsfRunner(ToolRunner):
         self._transport = transport
 
     def available(self) -> bool:
-        # no cheap status ping documented; availability = a live object. Failures
-        # during run() are captured as per-tool errors.
-        return True
+        # Skip health check when a test transport is injected.
+        if self._transport is not None:
+            return True
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                resp = client.get(
+                    f"{self._settings.mobsf_base_url}/api/v1/version",
+                    follow_redirects=False,
+                )
+                return resp.status_code < 500
+        except httpx.HTTPError:
+            return False
 
     def _client(self) -> httpx.Client:
         kwargs: dict[str, Any] = {"timeout": self._settings.tool_timeout_seconds, "follow_redirects": True}

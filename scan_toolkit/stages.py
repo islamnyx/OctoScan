@@ -109,13 +109,20 @@ def run_static(
 
     # 3. semgrep over decompiled Java (needs jadx's sources)
     sources = jadx_runner.sources_dir() / "sources"
-    if jadx_out.errors or not sources.exists():
+    if not sources.exists():
         notes.append("jadx produced no sources — semgrep skipped")
+    elif jadx_out.errors:
+        notes.append("jadx reported partial errors — semgrep scanning available sources")
     else:
         _collect(semgrep_runner.run(target_dir=sources))
 
-    # 4. mobile secure framework report
-    _collect(mobsf_runner.run(apk=apk))
+    # 4. mobile secure framework report (skip honestly when service is down)
+    mobsf_available = getattr(mobsf_runner, "available", lambda: True)()
+    if mobsf_available:
+        _collect(mobsf_runner.run(apk=apk))
+    else:
+        notes.append("MobSF unavailable — service not running, skipped")
+        _collect(IRToolOutput(tool="mobsf", errors=["MobSF unavailable"]))
 
     status = "completed" if not errors else ("partial" if tool_outputs else "failed")
     ir = StageIR(

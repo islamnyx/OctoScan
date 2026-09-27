@@ -198,6 +198,9 @@ class TestGrypeRunner:
 
     def test_grype_not_available(self, tmp_path):
         runner = GrypeRunner(tmp_path)
+        # Force the missing-binary path regardless of machine state.
+        runner._settings = runner._settings.model_copy(
+            update={"grype_bin": "definitely-not-installed-grype-bin"})
         out = runner.run(target_dir=tmp_path)
         assert "not available" in out.errors[0]
 

@@ -25,11 +25,15 @@ class JadxRunner(ToolRunner):
         binary = self._which(self._settings.jadx_bin)
         out_dir = self.sources_dir()
         proc = self._run_cmd([binary, "-d", out_dir, apk.resolve()])
-        if proc.returncode != 0 or not (out_dir / "sources").exists():
+        if not (out_dir / "sources").exists():
+            # No usable output at all — surface only the tail of stderr,
+            # never the full progress log (jadx is chatty on stdout).
+            err = (proc.stderr or "").strip().splitlines()
+            tail = "\n".join(err[-5:]) if err else (proc.stdout or "").strip()[-500:]
             return IRToolOutput(
                 tool=self.name,
                 raw_path=str(out_dir),
-                errors=[proc.stderr.strip() or proc.stdout.strip() or "jadx decompile failed"],
+                errors=[tail or "jadx decompile failed"],
             )
         # jadx writes into <out_dir>/sources; keep raw_path at useful root
         return IRToolOutput(

@@ -36,6 +36,7 @@ class SemgrepRunner(ToolRunner):
             "--config",
             str(self.rules_dir()),
             "--json",
+            "--no-git-ignore",  # decompiled source is outside any git repo
             "--output",
             str(raw_path),
             "--severity",
