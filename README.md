@@ -5,8 +5,8 @@
 Pre-launch security check for startups. Scan a **live web app** (DAST) or a **codebase** (SAST + secrets + dependencies), then our **AI agent reasons over every finding: drops the false alarms, writes the fix, re-scans to prove it, and tells you the attack story in plain words**.
 
 <p>
-  <img src="Presentation/assets/Untitled-removebg-preview.png" height="40" alt="NVIDIA" />
-  <img src="Presentation/assets/3-removebg-preview.png" height="40" alt="NVIDIA Nemotron 3 Ultra" />
+  <img src="Presentation/assets/Untitled-removebg-preview.png" height="90" alt="NVIDIA" />
+  <img src="Presentation/assets/3-removebg-preview.png" height="90" alt="NVIDIA Nemotron 3 Ultra" />
 </p>
 
 **Built for the GOMYCODE x NVIDIA hackathon — AI reasoning by NVIDIA Nemotron** (via the NVIDIA NIM API, with a self-hosted vLLM option so code never leaves your infrastructure).
@@ -47,16 +47,6 @@ Fixed backbone, AI decides inside each step — raw Python loop, no LangGraph/Cr
 - Fallback chain (second provider, then non-AI result) — the agent stops fixing instead of hallucinating when AI is down
 - Patches are suggestions a human applies; scans are read-only, consent-signed, SSRF-guarded
 - Fully local option: Ollama / LM Studio, zero data leaves the machine
-
-## Team progress (hackathon day)
-
-| Owner | Branch | Built |
-|---|---|---|
-| Islam | `hack/islam-agent` | Agent loop, fix+verify, attack story, agent page + API, NVIDIA/Brev presets, merges |
-| Friend A | `hack/friend-a-triage` | Prefilter, triage, eval harness + labelled set |
-| Friend B | (merged) | Attack story copy, demo run, agent page |
-| Friend #2 | `web_scanners` | ZAP stability fix, verified on Juice Shop |
-| Docs/video | `Presentation/` (on `main`) | Pitch page, live console screenshot, demo video |
 
 ## What it does (base platform)
 
