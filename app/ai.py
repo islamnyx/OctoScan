@@ -279,18 +279,22 @@ def _is_low_signal(f: Finding) -> bool:
 
 
 def _digest_pick(findings: list[Finding], limit: int = 40) -> list[Finding]:
-    """Balanced sample for the prompt: runtime findings before dev-only deps
-    and test fixtures, round-robin across scanners (each keeps its priority
-    order). On NodeGoat the plain top 40 was 40/40 OSV, so the model never
-    saw a single semgrep code finding."""
-    by_scanner: dict[str, list[Finding]] = {}
-    for f in sorted(findings, key=_is_low_signal):  # stable: keeps priority order
-        by_scanner.setdefault(f.scanner, []).append(f)
+    """Balanced sample for the prompt: round-robin across scanners (each
+    keeps its priority order), then dev-only deps / test fixtures only fill
+    leftover slots. On NodeGoat the plain top 40 was 40/40 OSV; on Juice
+    Shop plain round-robin spent 11 slots on gitleaks test fixtures."""
     picked: list[Finding] = []
-    while len(picked) < limit and any(by_scanner.values()):
-        for queue in by_scanner.values():
-            if queue and len(picked) < limit:
-                picked.append(queue.pop(0))
+    for pool in (
+        [f for f in findings if not _is_low_signal(f)],
+        [f for f in findings if _is_low_signal(f)],
+    ):
+        by_scanner: dict[str, list[Finding]] = {}
+        for f in pool:
+            by_scanner.setdefault(f.scanner, []).append(f)
+        while len(picked) < limit and any(by_scanner.values()):
+            for queue in by_scanner.values():
+                if queue and len(picked) < limit:
+                    picked.append(queue.pop(0))
     return picked
 
 

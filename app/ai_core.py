@@ -63,6 +63,10 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(
         r"(?i)(\b[\w.-]*" + _KEYWORDS + r"[\w.-]*[\"']?\s*(?:[:=]|=>)\s*)([\"'`])([^\"'`\n]{4,})\2"),
      r"\1\2[REDACTED]\2"),
+    # comparisons against a literal: password === 'hunter2' (Juice Shop login.ts)
+    (re.compile(
+        r"(?i)(\b[\w.]*" + _KEYWORDS + r"[\w.]*\s*(?:===|!==|==|!=)\s*)([\"'`])([^\"'`\n]{4,})\2"),
+     r"\1\2[REDACTED]\2"),
 ]
 
 

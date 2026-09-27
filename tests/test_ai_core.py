@@ -80,11 +80,13 @@ def test_redact_common_secrets():
         "db = 'mongodb://admin:hunter22@db:27017/app'",
         "key = " + "nvapi-" + "AbCdEf0123456789xyzXYZ",  # split: no token literal in git
         "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+        "if (req.body.password === 'hash_of_admin_pw') {",
         "const user = req.body.user;",
     ])
     out, n = ai_core.redact(src)
     assert n >= 5
-    for leaked in ("MIIEpAIBAAKCAQEA", "a_secret_key_value", "hunter22", "nvapi-AbCdEf", "abcdefghijklmnop"):
+    for leaked in ("MIIEpAIBAAKCAQEA", "a_secret_key_value", "hunter22", "nvapi-AbCdEf", "abcdefghijklmnop",
+                   "hash_of_admin_pw"):
         assert leaked not in out
     assert "const user = req.body.user;" in out  # ordinary code untouched
 
@@ -174,6 +176,14 @@ def test_digest_mixes_scanners_and_demotes_dev_deps():
     picked = ai._digest_pick(osv + code, 20)
     assert sum(f.scanner == "semgrep" for f in picked) == 10
     assert all((f.raw or {}).get("scope") != "dev" for f in picked if f.scanner == "osv")
+
+
+def test_digest_test_fixtures_only_fill_leftover_slots():
+    fixtures = [_f("gitleaks", Severity.low, f"fx{i}", likely_test_fixture=True) for i in range(50)]
+    code = [_f("semgrep", Severity.medium, f"xss{i}") for i in range(30)]
+    picked = ai._digest_pick(fixtures + code, 40)
+    assert sum(f.scanner == "semgrep" for f in picked) == 30  # all real code findings first
+    assert sum(f.scanner == "gitleaks" for f in picked) == 10  # fixtures fill the rest
 
 
 def test_analyze_findings_non_ai_fallback(fake):
