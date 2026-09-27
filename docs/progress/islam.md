@@ -64,3 +64,9 @@
 - Done: fake OpenAI-compatible server answering by json_schema name (Decision_*, TriageBatch, PatchReply, StoryReply) + sandbox app on :8001 (DATA_DIR sandbox, AI_PROVIDER=brev) -> POST /api/agent-scan NodeGoat
 - State: works — done in ~80 s: fresh scan 215 -> 30 (20 code + 10 deps), triage 20 real / 10 FP, eval patch VERIFIED 3->0, zapApiKey VERIFIED 2->0, weak open-redirect patch NOT FIXED twice (retry path), 3 OSV advice null, not_ready; 19 calls all with structured output, stats.model = dummy id; /agent?run=<id> renders it; clone untouched
 - Next: real Brev provider in the dashboard -> same run on the real model; merge into web_scanners
+
+## 15:39 - Everything merged into web_scanners + pushed
+- Done: web_scanners = origin/web_scanners (React dashboard by N3YX/whoami) + hack/islam-agent (agent, fix+verify, story, agent page, A's triage) + friend A 3224f35 (labels, results skeleton) + origin/main (README, Presentation/); no conflicts. Fixed: React build loads /assets/* but only /static was mounted -> dashboard was blank at / (main.py now mounts /assets)
+- State: works — 74 pytest pass; app restarted on the merged tree: / renders, /agent + ?demo=1 replay OK, /api/* OK; no keys/.env/data on any branch
+- Next: live run on Brev once configured; A: fix sys.path crash in eval/run_triage.py + run eval; project card + disclosure after 15:45
+- Decisions: people pushed straight to web_scanners/main at 15:12/15:19 -> always fetch + merge before pushing
