@@ -41,3 +41,9 @@
 - State: works — 40 pytest pass; real NodeGoat: eval 3->0 verified, zapApiKey 2->0 verified, broken patch -> verified false, clone untouched
 - Next: ai_agent.py loop + /api/agent-scan
 - Decisions: verified null also when no re-scan ran (AI down, patch rejected, rule doesn't fire on original); main model = Brev vLLM (provider "brev", json_schema structured output)
+
+## 14:31 - agent loop + API + A merged (hack/islam-agent, 0ad65fa)
+- Done: app/ai_agent.py (backbone scan->prefilter->triage->fix->verify->story, planner Decision{thought,tool,args} per phase with Literal tools, reuse_scan offer, retry once with scanner feedback, dep advice verified null, data/agent/<run>.json + activity), POST/GET /api/agent-scan + GET /agent in main.py; merged friend A (hack/friend-a-triage) into web_scanners (local, not pushed) and into my branch
+- State: works — 67 pytest pass; real NodeGoat run with NO AI: 56 s, 215 -> 30 (20 code + 10 deps), honest fallbacks, verdict not_ready
+- Next: Brev provider must be saved in the dashboard on this machine (chain is empty), then live run; merge B when pushed
+- Decisions: prefilter split code/deps (A's top-30 alone = all OSV on NodeGoat -> nothing to fix); verdict never "ready" while critical/high findings are only "review"; fix loop stops at first "AI unavailable"
