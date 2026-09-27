@@ -17,3 +17,8 @@
 - State: works — linkage verified, nothing to fix, so no code commit (others' files untouched per ownership)
 - Next: live-model eval when provider ready (TO_DO.md); re-verify linkage with real verdicts then
 - Decisions: did NOT commit to web_scanners directly (Islam merges); offline all-review/0-fix output is the designed fallback, not a linkage bug
+
+## 16:25 - Fixed sys.path crash in eval/run_triage.py
+- Done: `sys.insert` -> `sys.path.insert` (the crash Islam flagged); verified `.venv/bin/python eval/run_triage.py` now starts cleanly and refuses with "no AI provider configured" instead of AttributeError (Brev tunnel :11436 lives on Islam's box, not reachable here)
+- State: works — 31 pytest pass; live eval still blocked on provider (TO_DO.md)
+- Next: run live eval where the Brev tunnel is up, or with NVIDIA key

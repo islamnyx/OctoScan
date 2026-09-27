@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT))
 
 from app import ai_core  # noqa: E402
 from app.ai_triage import prefilter, triage  # noqa: E402
