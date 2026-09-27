@@ -1,5 +1,5 @@
 {
-  "run_id": "demo000000000000",
+  "run_id": "6450f7181f364d57",
   "status": "done",
   "repo_url": "https://github.com/OWASP/NodeGoat",
   "target_url": null,
@@ -9,7 +9,7 @@
   "steps": [
     {
       "n": 1,
-      "thought": "A completed scan of this repo is on disk; reusing it saves a minute and the code has not changed.",
+      "thought": "Reusing existing scan d93203888162467a (92 min old) with 215 findings to avoid redundant scanning and save time.",
       "tool": "reuse_scan",
       "result": "reused scan d93203888162467a: 215 findings (gitleaks, semgrep, osv)",
       "args": {
@@ -20,69 +20,44 @@
     },
     {
       "n": 2,
-      "thought": "179 of 215 findings are dependency advisories, many dev-only; keep the 30 that actually ship, code first.",
+      "thought": "Dropping 87 dev-only deps and 1 test fixture (total 88), leaving 127. Keeping top 30 by severity priority (critical/high) to focus on exploitable risks first.",
       "tool": "prefilter",
       "result": "215 -> 30 findings (20 code + 10 dependency; dropped 87 dev-only, 1 test fixtures, info rows)",
       "args": {
         "limit": 30
       },
       "status": "done",
-      "ms": 0
+      "ms": 1
     },
     {
       "n": 3,
-      "thought": "Reading each finding with 40 lines of its code to separate real bugs from scanner noise.",
+      "thought": "Analyzing first batch of 5 findings from gitleaks/osv/semgrep with code context for triage labeling",
       "tool": "triage",
-      "result": "20 real, 9 false positive, 1 to review",
+      "result": "24 real, 6 false positive, 0 to review",
       "args": {
         "findings": 30,
         "batch": 5
       },
       "status": "done",
-      "ms": 1
+      "ms": 152856
     },
     {
       "n": 4,
-      "thought": "eval() on request body is remote code execution on the server: fix first.",
+      "thought": "Fixing high-severity NoSQL injection in allocations-dao.js first. The interpolated $where clause uses user input, so we'll parameterize the query to prevent injection.",
       "tool": "fix",
-      "result": "patch for app/routes/contributions.js:32 (6 changed lines)",
-      "args": {
-        "finding_id": "b6a423e336d1",
-        "file": "app/routes/contributions.js",
-        "line": 32,
-        "attempt": 1
-      },
-      "status": "done",
-      "ms": 2667
-    },
-    {
-      "n": 5,
-      "thought": "Re-running only javascript.browser.security.eval-detected.eval-detected on the original and the patched copy: the scanner decides, not the model.",
-      "tool": "verify",
-      "result": "VERIFIED: semgrep javascript.browser.security.eval-detected.eval-detected: 3 -> 0 matches after the patch",
-      "args": {
-        "finding_id": "b6a423e336d1",
-        "rule": "javascript.browser.security.eval-detected.eval-detected"
-      },
-      "status": "done",
-      "ms": 0
-    },
-    {
-      "n": 6,
-      "thought": "User input is interpolated into a MongoDB $where: NoSQL injection lets anyone read other users' allocations.",
-      "tool": "fix",
-      "result": "patch for app/data/allocations-dao.js:78 (5 changed lines)",
+      "result": "patch for app/data/allocations-dao.js:78 (9 changed lines)",
       "args": {
         "finding_id": "9abd1c700b23",
         "file": "app/data/allocations-dao.js",
         "line": 78,
-        "attempt": 1
+        "attempt": 1,
+        "hint": "Replace string interpolation with MongoDB's $expr and $eq operators for safe parameter passing."
       },
       "status": "done",
-      "ms": 1743
+      "ms": 24137
     },
     {
-      "n": 7,
+      "n": 5,
       "thought": "Re-running only semgrep-rules.nodegoat-nosql-where-interpolation on the original and the patched copy: the scanner decides, not the model.",
       "tool": "verify",
       "result": "NOT FIXED: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)",
@@ -94,8 +69,35 @@
       "ms": 0
     },
     {
+      "n": 6,
+      "thought": "Addressing high-severity code-string-concat in contributions.js: user input passed to eval() enables arbitrary code execution. Prioritizing this over medium-severity issues and unverified NoSQL fix.",
+      "tool": "fix",
+      "result": "patch for app/routes/contributions.js:32 (6 changed lines)",
+      "args": {
+        "finding_id": "3ff1fcf2b25b",
+        "file": "app/routes/contributions.js",
+        "line": 32,
+        "attempt": 1,
+        "hint": "Replace eval with a safer method to prevent code execution"
+      },
+      "status": "done",
+      "ms": 13891
+    },
+    {
+      "n": 7,
+      "thought": "Re-running only javascript.lang.security.audit.code-string-concat.code-string-concat on the original and the patched copy: the scanner decides, not the model.",
+      "tool": "verify",
+      "result": "VERIFIED: semgrep javascript.lang.security.audit.code-string-concat.code-string-concat: 3 -> 0 matches after the patch",
+      "args": {
+        "finding_id": "3ff1fcf2b25b",
+        "rule": "javascript.lang.security.audit.code-string-concat.code-string-concat"
+      },
+      "status": "done",
+      "ms": 0
+    },
+    {
       "n": 8,
-      "thought": "The re-scan says my last patch broke the file; retrying with the scanner's feedback and a tighter line range.",
+      "thought": "Addressing high-severity NoSQL injection in allocations-dao.js first. Previous patch attempt succeeded but needs verification.",
       "tool": "fix",
       "result": "patch for app/data/allocations-dao.js:78 (3 changed lines)",
       "args": {
@@ -103,45 +105,46 @@
         "file": "app/data/allocations-dao.js",
         "line": 78,
         "attempt": 2,
-        "hint": "replace the whole return { ... }; block, lines 77-79 Last attempt: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)"
+        "hint": "Last attempt: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)"
       },
       "status": "done",
-      "ms": 1768
+      "ms": 77298
     },
     {
       "n": 9,
       "thought": "Re-running only semgrep-rules.nodegoat-nosql-where-interpolation on the original and the patched copy: the scanner decides, not the model.",
       "tool": "verify",
-      "result": "VERIFIED: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: 1 -> 0 matches after the patch",
+      "result": "NOT FIXED: semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)",
       "args": {
         "finding_id": "9abd1c700b23",
         "rule": "semgrep-rules.nodegoat-nosql-where-interpolation"
       },
-      "status": "done",
+      "status": "error",
       "ms": 0
     },
     {
       "n": 10,
-      "thought": "A live ZAP API key is committed in config; move it to an environment variable.",
+      "thought": "Fixing the highest-confidence eval-detected issue first (0.95 confidence) in contributions.js line 32. Replacing eval with JSON.parse if parsing JSON input.",
       "tool": "fix",
-      "result": "patch for config/env/development.js:6 (2 changed lines)",
+      "result": "patch for app/routes/contributions.js:32 (6 changed lines)",
       "args": {
-        "finding_id": "e5cb777da84d",
-        "file": "config/env/development.js",
-        "line": 6,
-        "attempt": 1
+        "finding_id": "b6a423e336d1",
+        "file": "app/routes/contributions.js",
+        "line": 32,
+        "attempt": 1,
+        "hint": "Replace eval with JSON.parse or equivalent safe method for untrusted input"
       },
       "status": "done",
-      "ms": 405
+      "ms": 15884
     },
     {
       "n": 11,
-      "thought": "Re-running only generic-api-key on the original and the patched copy: the scanner decides, not the model.",
+      "thought": "Re-running only javascript.browser.security.eval-detected.eval-detected on the original and the patched copy: the scanner decides, not the model.",
       "tool": "verify",
-      "result": "VERIFIED: gitleaks generic-api-key, startup-api-key-env: 2 -> 0 matches after the patch",
+      "result": "VERIFIED: semgrep javascript.browser.security.eval-detected.eval-detected: 3 -> 0 matches after the patch",
       "args": {
-        "finding_id": "e5cb777da84d",
-        "rule": "generic-api-key"
+        "finding_id": "b6a423e336d1",
+        "rule": "javascript.browser.security.eval-detected.eval-detected"
       },
       "status": "done",
       "ms": 0
@@ -154,8 +157,8 @@
       "args": {
         "findings": [
           "930747d1753a",
-          "3f783b544db7",
-          "c93e0fbd87e4"
+          "c93e0fbd87e4",
+          "61d0fa180afe"
         ]
       },
       "status": "done",
@@ -163,14 +166,14 @@
     },
     {
       "n": 13,
-      "thought": "Chaining the confirmed findings into how an attacker would break in, then the launch verdict.",
+      "thought": "Chaining 14 critical/high real findings into an exploit story. Launch is not_ready due to unaddressed high-severity vulnerabilities.",
       "tool": "story",
-      "result": "verdict not_ready: 4 blocker(s)",
+      "result": "verdict not_ready: 6 blocker(s)",
       "args": {
-        "real_findings": 20
+        "real_findings": 24
       },
       "status": "done",
-      "ms": 0
+      "ms": 14943
     }
   ],
   "findings": [
@@ -180,9 +183,9 @@
       "severity": "high",
       "file": "artifacts/cert/server.key",
       "line": 1,
-      "verdict": "review",
-      "confidence": 0.45,
-      "reason": "Pattern is risky but the code window does not show whether the value is user-controlled.",
+      "verdict": "real",
+      "confidence": 1.0,
+      "reason": "Private key file contains sensitive credentials hardcoded in server.key, a real security risk.",
       "scanner": "semgrep"
     },
     {
@@ -192,8 +195,8 @@
       "file": "app/data/allocations-dao.js",
       "line": 78,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 1.0,
+      "reason": "NoSQL injection via interpolated $where clause using user input (parsedUserId and threshold) in allocations-dao.js.",
       "scanner": "semgrep"
     },
     {
@@ -203,8 +206,8 @@
       "file": "app/routes/contributions.js",
       "line": 32,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 1.0,
+      "reason": "User input (req.body.preTax) passed to eval() in contributions.js, enabling arbitrary code execution.",
       "scanner": "semgrep"
     },
     {
@@ -214,8 +217,8 @@
       "file": "app/routes/contributions.js",
       "line": 33,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 1.0,
+      "reason": "User input (req.body.afterTax) passed to eval() in contributions.js, enabling arbitrary code execution.",
       "scanner": "semgrep"
     },
     {
@@ -225,8 +228,8 @@
       "file": "app/routes/contributions.js",
       "line": 34,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 1.0,
+      "reason": "User input (req.body.roth) passed to eval() in contributions.js, enabling arbitrary code execution.",
       "scanner": "semgrep"
     },
     {
@@ -236,8 +239,8 @@
       "file": "artifacts/db-reset.js",
       "line": 19,
       "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "confidence": 0.95,
+      "reason": "Redacted password field in test data setup script, not a real bcrypt hash.",
       "scanner": "semgrep"
     },
     {
@@ -247,8 +250,8 @@
       "file": "artifacts/db-reset.js",
       "line": 28,
       "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "confidence": 0.95,
+      "reason": "Redacted password field in test data setup script, not a real bcrypt hash.",
       "scanner": "semgrep"
     },
     {
@@ -258,8 +261,8 @@
       "file": "artifacts/db-reset.js",
       "line": 36,
       "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "confidence": 0.95,
+      "reason": "Redacted password field in test data setup script, not a real bcrypt hash.",
       "scanner": "semgrep"
     },
     {
@@ -268,9 +271,9 @@
       "severity": "medium",
       "file": "config/env/development.js",
       "line": 6,
-      "verdict": "real",
+      "verdict": "false_positive",
       "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "reason": "Redacted API key placeholder in development config, not a real secret.",
       "scanner": "gitleaks"
     },
     {
@@ -279,9 +282,9 @@
       "severity": "medium",
       "file": "github/workflows/e2e-test.yml",
       "line": 16,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 1.0,
+      "reason": "GitHub Actions step uses mutable tag 'v2' instead of a fixed commit SHA, enabling supply-chain risks.",
       "scanner": "semgrep"
     },
     {
@@ -290,9 +293,9 @@
       "severity": "medium",
       "file": "github/workflows/e2e-test.yml",
       "line": 21,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 0.9,
+      "reason": "Uses mutable tag 'v1' for actions/setup-node, which is a known security risk as per GitHub Actions best practices.",
       "scanner": "semgrep"
     },
     {
@@ -301,9 +304,9 @@
       "severity": "medium",
       "file": "github/workflows/e2e-test.yml",
       "line": 26,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 0.9,
+      "reason": "Uses mutable tag 'v2' for actions/cache, which is a known security risk as per GitHub Actions best practices.",
       "scanner": "semgrep"
     },
     {
@@ -312,9 +315,9 @@
       "severity": "medium",
       "file": "github/workflows/e2e-test.yml",
       "line": 58,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 0.9,
+      "reason": "Uses mutable tag 'v2' for actions/upload-artifact, which is a known security risk as per GitHub Actions best practices.",
       "scanner": "semgrep"
     },
     {
@@ -323,9 +326,9 @@
       "severity": "medium",
       "file": "github/workflows/lint.yml",
       "line": 16,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 0.9,
+      "reason": "Uses mutable tag 'v2' for actions/checkout, which is a known security risk as per GitHub Actions best practices.",
       "scanner": "semgrep"
     },
     {
@@ -334,9 +337,9 @@
       "severity": "medium",
       "file": "github/workflows/lint.yml",
       "line": 21,
-      "verdict": "false_positive",
-      "confidence": 0.82,
-      "reason": "Seed data / docs / CI config: not reachable from a request in the shipped app.",
+      "verdict": "real",
+      "confidence": 0.9,
+      "reason": "Uses mutable tag 'v1' for actions/setup-node, which is a known security risk as per GitHub Actions best practices.",
       "scanner": "semgrep"
     },
     {
@@ -346,8 +349,8 @@
       "file": "app/routes/contributions.js",
       "line": 32,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 0.95,
+      "reason": "Eval used on untrusted req.body input which can execute arbitrary code.",
       "scanner": "semgrep"
     },
     {
@@ -357,8 +360,8 @@
       "file": "app/routes/contributions.js",
       "line": 33,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 0.95,
+      "reason": "Eval used on untrusted req.body input which can execute arbitrary code.",
       "scanner": "semgrep"
     },
     {
@@ -368,8 +371,8 @@
       "file": "app/routes/contributions.js",
       "line": 34,
       "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "confidence": 0.95,
+      "reason": "Eval used on untrusted req.body input which can execute arbitrary code.",
       "scanner": "semgrep"
     },
     {
@@ -378,9 +381,9 @@
       "severity": "medium",
       "file": "app/routes/contributions.js",
       "line": 65,
-      "verdict": "real",
-      "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "verdict": "false_positive",
+      "confidence": 0.7,
+      "reason": "Inputs are validated with isNaN and range checks before reaching the DAO update.",
       "scanner": "semgrep"
     },
     {
@@ -391,7 +394,7 @@
       "line": 72,
       "verdict": "real",
       "confidence": 0.9,
-      "reason": "User-controlled request data reaches the flagged sink with no validation (see the code window).",
+      "reason": "Unvalidated user-controlled req.query.url used in res.redirect without sanitization.",
       "scanner": "semgrep"
     },
     {
@@ -401,8 +404,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.8,
+      "reason": "bson@1.0.9 is vulnerable to deserialization of untrusted data (CVE-2020-7610) and is used transitively via mongodb-core in production dependencies.",
       "scanner": "osv"
     },
     {
@@ -411,9 +414,9 @@
       "severity": "critical",
       "file": "package-lock.json",
       "line": null,
-      "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "verdict": "false_positive",
+      "confidence": 0.6,
+      "reason": "fsevents@1.2.9 is a macOS-specific dev dependency via chokidar/forever-monitor, not used in production runtime.",
       "scanner": "osv"
     },
     {
@@ -423,8 +426,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.9,
+      "reason": "minimist has multiple vulnerable versions (0.0.8-1.2.5) with prototype pollution (CVE-2021-44906) in both runtime and dev dependencies.",
       "scanner": "osv"
     },
     {
@@ -435,7 +438,7 @@
       "line": null,
       "verdict": "real",
       "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "reason": "mixin-deep@1.3.1 is vulnerable to prototype pollution (CVE-2019-10746) and appears as a transitive dependency via base.",
       "scanner": "osv"
     },
     {
@@ -445,8 +448,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.8,
+      "reason": "set-value has two vulnerable versions (0.4.3/2.0.0) with prototype pollution (CVE-2019-10747) in transitive dependencies via cache-base/union-value.",
       "scanner": "osv"
     },
     {
@@ -456,8 +459,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.95,
+      "reason": "underscore@1.8.3 and 1.9.1 are directly listed in dependencies with vulnerable versions.",
       "scanner": "osv"
     },
     {
@@ -467,8 +470,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.9,
+      "reason": "lodash@2.4.2, 4.13.1, and 4.17.11 are transitive dependencies via async, cypress, and other packages.",
       "scanner": "osv"
     },
     {
@@ -478,8 +481,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.85,
+      "reason": "tar@2.2.1 and 4.4.8 are transitive dependencies via fsevents and npm, which are part of the project's ecosystem.",
       "scanner": "osv"
     },
     {
@@ -489,8 +492,8 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.85,
+      "reason": "tar@2.2.1 and 4.4.8 are transitive dependencies via fsevents and npm, which are part of the project's ecosystem.",
       "scanner": "osv"
     },
     {
@@ -500,52 +503,43 @@
       "file": "package-lock.json",
       "line": null,
       "verdict": "real",
-      "confidence": 0.7,
-      "reason": "Runtime dependency with a known advisory; shipped in production.",
+      "confidence": 0.85,
+      "reason": "tar@2.2.1 and 4.4.8 are transitive dependencies via fsevents and npm, which are part of the project's ecosystem.",
       "scanner": "osv"
     }
   ],
   "fixes": [
     {
+      "finding_id": "3ff1fcf2b25b",
+      "diff": "--- a/app/routes/contributions.js\n+++ b/app/routes/contributions.js\n@@ -29,9 +29,9 @@\n \n         /*jslint evil: true */\n         // Insecure use of eval() to parse inputs\n-        const preTax = eval(req.body.preTax);\n-        const afterTax = eval(req.body.afterTax);\n-        const roth = eval(req.body.roth);\n+const preTax = parseInt(req.body.preTax, 10);\n+const afterTax = parseInt(req.body.afterTax, 10);\n+const roth = parseInt(req.body.roth, 10);\n \n         /*\n         //Fix for A1 -1 SSJS Injection attacks - uses alternate method to eval\n",
+      "explanation": "Replaces unsafe eval() with parseInt to safely convert user input strings to numbers without executing arbitrary code",
+      "verified": true,
+      "file": "app/routes/contributions.js",
+      "rule": "javascript.lang.security.audit.code-string-concat.code-string-concat",
+      "note": "semgrep javascript.lang.security.audit.code-string-concat.code-string-concat: 3 -> 0 matches after the patch"
+    },
+    {
+      "finding_id": "9abd1c700b23",
+      "diff": "--- a/app/data/allocations-dao.js\n+++ b/app/data/allocations-dao.js\n@@ -75,8 +75,7 @@\n                 throw `The user supplied threshold: ${parsedThreshold} was not valid.`;\n                 */\n                 return {\n-                    $where: `this.userId == ${parsedUserId} && this.stocks > '${threshold}'`\n-                };\n+return { userId: parsedUserId, stocks: { $gt: parseInt(threshold, 10) } };\n             }\n             return {\n                 userId: parsedUserId\n",
+      "explanation": "Replaces unsafe $where with a query using MongoDB operators instead of JavaScript evaluation. Parses threshold as integer and uses $gt operator to prevent code execution in queries.",
+      "verified": false,
+      "file": "app/data/allocations-dao.js",
+      "rule": "semgrep-rules.nodegoat-nosql-where-interpolation",
+      "note": "semgrep semgrep-rules.nodegoat-nosql-where-interpolation: patched file no longer parses (1 -> 0 matches)"
+    },
+    {
       "finding_id": "b6a423e336d1",
-      "diff": "--- a/app/routes/contributions.js\n+++ b/app/routes/contributions.js\n@@ -29,9 +29,9 @@\n \n         /*jslint evil: true */\n         // Insecure use of eval() to parse inputs\n-        const preTax = eval(req.body.preTax);\n-        const afterTax = eval(req.body.afterTax);\n-        const roth = eval(req.body.roth);\n+        const preTax = parseInt(req.body.preTax, 10);\n+        const afterTax = parseInt(req.body.afterTax, 10);\n+        const roth = parseInt(req.body.roth, 10);\n \n         /*\n         //Fix for A1 -1 SSJS Injection attacks - uses alternate method to eval\n",
-      "explanation": "eval() executes whatever the user sends; parseInt only accepts a number, so injected JavaScript can no longer run on the server.",
+      "diff": "--- a/app/routes/contributions.js\n+++ b/app/routes/contributions.js\n@@ -29,9 +29,9 @@\n \n         /*jslint evil: true */\n         // Insecure use of eval() to parse inputs\n-        const preTax = eval(req.body.preTax);\n-        const afterTax = eval(req.body.afterTax);\n-        const roth = eval(req.body.roth);\n+const preTax = parseInt(req.body.preTax);\n+const afterTax = parseInt(req.body.afterTax);\n+const roth = parseInt(req.body.roth);\n \n         /*\n         //Fix for A1 -1 SSJS Injection attacks - uses alternate method to eval\n",
+      "explanation": "Replaces eval() with parseInt to safely parse numeric input from untrusted sources, eliminating code injection risks while maintaining the same numeric conversion behavior.",
       "verified": true,
       "file": "app/routes/contributions.js",
       "rule": "javascript.browser.security.eval-detected.eval-detected",
       "note": "semgrep javascript.browser.security.eval-detected.eval-detected: 3 -> 0 matches after the patch"
     },
     {
-      "finding_id": "9abd1c700b23",
-      "diff": "--- a/app/data/allocations-dao.js\n+++ b/app/data/allocations-dao.js\n@@ -75,7 +75,8 @@\n                 throw `The user supplied threshold: ${parsedThreshold} was not valid.`;\n                 */\n                 return {\n-                    $where: `this.userId == ${parsedUserId} && this.stocks > '${threshold}'`\n+                    userId: parsedUserId,\n+                    stocks: { $gt: parseInt(threshold, 10) }\n                 };\n             }\n             return {\n",
-      "explanation": "The threshold was pasted into a $where JavaScript string; a parsed integer in a normal query operator cannot change the query logic.",
-      "verified": true,
-      "file": "app/data/allocations-dao.js",
-      "rule": "semgrep-rules.nodegoat-nosql-where-interpolation",
-      "note": "semgrep semgrep-rules.nodegoat-nosql-where-interpolation: 1 -> 0 matches after the patch"
-    },
-    {
-      "finding_id": "e5cb777da84d",
-      "diff": "--- a/config/env/development.js\n+++ b/config/env/development.js\n@@ -3,7 +3,7 @@\n    zapHostName: \"192.168.56.20\",\n    zapPort: \"8080\",\n    // Required from Zap 2.4.1. This key is set in Zap Options -> API _Api Key.\n-   zapApiKey: \"[REDACTED]\",\n+   zapApiKey: process.env.ZAP_API_KEY,\n    // Required if debugging security regression tests.\n    zapApiFeedbackSpeed: 5000, // Milliseconds.\n    environmentalScripts: [\n",
-      "explanation": "The key now comes from the environment, so it is no longer in git; rotate the old key because it is in the history.",
-      "verified": true,
-      "file": "config/env/development.js",
-      "rule": "generic-api-key",
-      "note": "gitleaks generic-api-key, startup-api-key-env: 2 -> 0 matches after the patch"
-    },
-    {
       "finding_id": "930747d1753a",
       "diff": "",
       "explanation": "Pulled in via mongodb-core \u2014 `npm audit fix` to resolve every path, or bump each parent past >=1.1.4.",
-      "verified": null,
-      "file": "package-lock.json",
-      "rule": "",
-      "note": "osv finding: not verifiable by a code re-scan"
-    },
-    {
-      "finding_id": "3f783b544db7",
-      "diff": "",
-      "explanation": "Pulled in via chokidar, forever-monitor \u2014 `npm audit fix` to resolve every path, or bump each parent past >=1.2.11.",
       "verified": null,
       "file": "package-lock.json",
       "rule": "",
@@ -559,25 +553,36 @@
       "file": "package-lock.json",
       "rule": "",
       "note": "osv finding: not verifiable by a code re-scan"
+    },
+    {
+      "finding_id": "61d0fa180afe",
+      "diff": "",
+      "explanation": "Pulled in via base \u2014 `npm audit fix` to resolve every path, or bump each parent past >=1.3.2, >=2.0.1.",
+      "verified": null,
+      "file": "package-lock.json",
+      "rule": "",
+      "note": "osv finding: not verifiable by a code re-scan"
     }
   ],
   "verdict": "not_ready",
   "blockers": [
-    "Remote code execution via eval() in app/routes/contributions.js",
-    "NoSQL injection via $where in app/data/allocations-dao.js",
-    "Server-side request forgery in app/routes/research.js",
-    "Session cookie readable by JavaScript (no httpOnly)"
+    "OSV CVE-2020-7610 in bson (package-lock.json)",
+    "OSV CVE-2021-44906 in minimist (package-lock.json)",
+    "OSV CVE-2019-10746 in mixin-deep (package-lock.json)",
+    "Semgrep NoSQL injection in allocations-dao.js:78",
+    "Semgrep private key in artifacts/cert/server.key:1",
+    "Semgrep eval() code execution in contributions.js:32-34"
   ],
-  "attack_story": "An attacker signs up, opens the Contributions page and submits JavaScript instead of a number: the server runs it with eval(), which gives them a shell on your server. From there they read the MongoDB connection string and dump every user. Even without that, the allocations search pastes their input into a $where query, so they can list other users' portfolios, and the research page fetches any URL they give it, letting them reach internal services. Fix the three code paths above (patches are ready and re-scanned) before launch.",
+  "attack_story": "An attacker exploits the NoSQL injection in allocations-dao.js to manipulate database queries, then uses vulnerable dependencies (e.g., prototype pollution in lodash/minimist) to escalate privileges or execute arbitrary code. They steal the hardcoded private key from server.key to decrypt sensitive data or impersonate the server. The eval() code execution in contributions.js provides another entry point for system compromise. All critical dependencies (bson, tar, etc.) could enable remote code execution or denial-of-service attacks once initial access is achieved.",
   "stats": {
-    "model": "brev/vllm-model",
-    "calls": 17,
-    "median_latency_ms": 1840,
+    "model": "qwen3:32b",
+    "calls": 22,
+    "median_latency_ms": 13458,
     "fallback_used": false,
-    "tokens_in": 41230,
-    "tokens_out": 6120
+    "tokens_in": 33335,
+    "tokens_out": 13747
   },
   "error": null,
-  "created_at": "2026-09-27T13:50:17.177428Z",
-  "finished_at": "2026-09-27T13:50:23.938992Z"
+  "created_at": "2026-09-27T15:04:02.414682Z",
+  "finished_at": "2026-09-27T15:10:43.805717Z"
 }

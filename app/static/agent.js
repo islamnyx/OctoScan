@@ -839,4 +839,42 @@
     if (RUN_ID_RE.test(rid)) beginLive(rid, "");
     else showError("The run id in the URL is not valid.");
   }
+
+  // ---- recent runs (history of AI results; each opens ?run=<id>)
+  function loadRecent() {
+    var sec = document.getElementById("recent-section");
+    var list = document.getElementById("recent-list");
+    if (!sec || !list) return;
+    var headers = {};
+    try { var k = (localStorage.getItem("apiKey") || "").trim(); if (k) headers["X-API-Key"] = k; } catch (e) { /* no storage */ }
+    fetch("/api/agent-scans", { headers: headers }).then(function (r) {
+      return r.ok ? r.json() : [];
+    }).then(function (rows) {
+      if (!Array.isArray(rows) || !rows.length) return;
+      while (list.firstChild) list.removeChild(list.firstChild);
+      rows.forEach(function (row) {
+        if (!row || !RUN_ID_RE.test(String(row.run_id || ""))) return;
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = "?run=" + encodeURIComponent(row.run_id);
+        var repo = document.createElement("span"); repo.className = "r-repo";
+        repo.textContent = String(row.repo_url || "").replace(/^https:\/\/github\.com\//, "");
+        var verdict = document.createElement("span");
+        var v = String(row.verdict || row.status || "");
+        verdict.className = "r-verdict " + (v === "ready" || v === "not_ready" ? v : "");
+        verdict.textContent = v === "not_ready" ? "NOT READY" : v === "ready" ? "READY" : v.toUpperCase();
+        var meta = document.createElement("span"); meta.className = "r-meta";
+        var when = "";
+        try { when = new Date(row.created_at).toLocaleString(); } catch (e) { when = ""; }
+        meta.textContent = [when, row.model || "no model", (row.findings || 0) + " findings",
+          (row.fixes_verified || 0) + " verified fix(es)"].join(" \u00b7 ");
+        a.appendChild(repo); a.appendChild(verdict); a.appendChild(meta);
+        li.appendChild(a); list.appendChild(li);
+      });
+      var c = document.getElementById("recent-count");
+      if (c) c.textContent = String(list.children.length);
+      sec.hidden = list.children.length === 0;
+    }).catch(function () { /* history is optional */ });
+  }
+  if (!(params && (params.get("demo") === "1" || params.get("run")))) loadRecent();
 })();

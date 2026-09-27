@@ -175,6 +175,29 @@ def get(run_id: str) -> dict | None:
         return run.model_dump(mode="json")
 
 
+def list_runs(limit: int = 20) -> list[dict]:
+    """Newest agent runs (summary only) for the agent page's history list."""
+    runs: dict[str, AgentRun] = {}
+    try:
+        for fp in AGENT_DIR.glob("*.json"):
+            try:
+                r = AgentRun.model_validate_json(fp.read_text())
+                runs[r.run_id] = r
+            except Exception:
+                continue
+    except Exception:
+        pass
+    with _LOCK:
+        runs.update(_RUNS)
+        rows = [{
+            "run_id": r.run_id, "status": r.status, "repo_url": r.repo_url, "verdict": r.verdict,
+            "model": r.stats.model, "fixes_verified": sum(1 for x in r.fixes if x.verified is True),
+            "findings": len(r.findings), "created_at": r.created_at.isoformat(),
+        } for r in runs.values()]
+    rows.sort(key=lambda x: x["created_at"], reverse=True)
+    return rows[:limit]
+
+
 def running_count() -> int:
     with _LOCK:
         return sum(1 for r in _RUNS.values() if r.status == "running")

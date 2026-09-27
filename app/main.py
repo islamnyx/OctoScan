@@ -502,6 +502,13 @@ def create_agent_scan(req: AgentScanRequest, request: Request, api_key: str = De
     return {"run_id": run.run_id}
 
 
+@app.get("/api/agent-scans")
+def list_agent_scans(api_key: str = Depends(require_api_key)):
+    from app import ai_agent
+
+    return ai_agent.list_runs()
+
+
 @app.get("/api/agent-scan/{run_id}")
 def get_agent_scan(run_id: str, api_key: str = Depends(require_api_key)):
     from app import ai_agent

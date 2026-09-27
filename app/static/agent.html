@@ -115,6 +115,12 @@
 
     /* timeline */
     .timeline { display: flex; flex-direction: column; gap: 10px; max-height: min(64vh, 680px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scroll-behavior: smooth; }
+    .recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .recent a { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); text-decoration: none; font-size: 13px; }
+    .recent a:hover { border-color: var(--accent); }
+    .recent .r-repo { font-weight: 700; overflow-wrap: anywhere; }
+    .recent .r-meta { color: var(--faint); font-family: var(--mono); font-size: 12px; }
+    .recent .r-verdict.ready { color: var(--ok); } .recent .r-verdict.not_ready { color: var(--err); }
     .empty { padding: 16px; color: var(--faint); font-size: 13px; border: 1px dashed var(--border-strong); border-radius: var(--radius); }
     .step { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: var(--radius); padding: 12px 14px; min-width: 0; animation: slidein .25s ease-out; }
     .step.running { border-left-color: var(--accent); }
@@ -279,6 +285,11 @@
     </section>
 
     <div id="empty-state" class="empty">No run yet. Start the agent above, or open <a href="?demo=1">the recorded demo run</a>.</div>
+
+    <section id="recent-section" aria-label="Recent AI runs" hidden>
+      <h2 class="section-title">Recent AI runs <span class="count" id="recent-count"></span></h2>
+      <ol id="recent-list" class="recent"></ol>
+    </section>
 
     <div id="run-view" hidden>
       <section aria-label="Run status">
