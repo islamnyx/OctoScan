@@ -47,3 +47,9 @@
 - State: works — 327 pytest pass, no ownership violations (main.py/models.py/ai_fix.py untouched; ScanAuth/AnalyzeReply/BaseScanner kept after verification they are live)
 - Next: integrator merges hack/n3yx-cleanup; follow-ups left out: split long files (zap 696/main 679/agent 622/review 613), toolkit wrapper merges, test-fixtures prune, frontend rebuild
 - Decisions: skills (.agents/.opencode/.claude) kept — not clutter; app/static/assets kept (tracked build output); audit corrections recorded in TEAM.md requests
+
+## 11:45 - Cleanup merged to main (integrator override by n3yx)
+- Done: merged hack/n3yx-cleanup (e71b3d0 + 6d75dfe) into main, pushed origin/main (25e8c4d..6d75dfe); 327 pytest pass on merged main
+- State: works — main in sync with origin/main, branch hack/n3yx-cleanup kept (not deleted, integrator decides)
+- Next: remote CI (security.yml gitleaks + pip-audit) runs on push — check GitHub Actions; repo moved to islamnyx/OctoScan, update remote URL
+- Decisions: user overrode TEAM.md integrator rule (Islam merges) with explicit typed approval; merge was fast-forward, no conflicts
