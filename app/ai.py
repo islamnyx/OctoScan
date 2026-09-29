@@ -12,13 +12,12 @@ Never log keys.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field, field_validator
 
-from app.config import ROOT, settings
+from app.config import settings
 from app.models import AIAnalysis, Finding
 
 CONFIG_PATH = settings.data_dir / "ai_config.json"
@@ -405,7 +404,3 @@ def _fallback_analysis(
         false_positive_notes="Not assessed: no AI triage ran.",
         raw={"fallback": "non-ai", "error": str(exc)[:300]},
     )
-
-
-def repo_file_path() -> Path:
-    return ROOT / "data" / "ai_config.json"

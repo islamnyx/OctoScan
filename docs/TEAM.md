@@ -21,4 +21,5 @@ Rule: one owner per file. Only the owner edits it. Everyone else asks via "Reque
 - 17:00  final: submission links checked
 
 ## Requests (need a change in a file you don't own? write it here)
--
+- n3yx-cleanup: app/main.py has unused import `HttpUrl` (0 uses, verified via AST) — request owner (Islam) to remove. Not touched per ownership rule.
+- n3yx-cleanup: kept `ScanAuth` (app/models.py, used in base.py + ScanJob fields), `AnalyzeReply` (app/ai.py, used at call_json), `BaseScanner` re-export (scanners/__init__.py `__all__`) — audit flagged them but verification shows they are live.

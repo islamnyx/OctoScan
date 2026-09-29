@@ -6,7 +6,6 @@ take effect between steps; resume skips already-finished scanners.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Callable
 
 from app import activity, ai as ai_layer
 from app import ai_review

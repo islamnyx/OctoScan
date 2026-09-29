@@ -29,7 +29,6 @@ from app import activity, ai_core, ai_fix
 from app.config import settings
 from app.models import (
     AgentFinding,
-    AgentFix,
     AgentRun,
     AgentStats,
     AgentStep,

@@ -41,3 +41,9 @@
 - State: works — clean branch, `git status --short --branch` shows `## main...origin/main [ahead 13]` before the push, then push succeeded
 - Next: none; branch is synced and published to main
 - Decisions: kept the final merged README and removed the stale local `.claude` config to preserve the current clean branch state
+
+## 11:30 - Professional cleanup (hack/n3yx-cleanup)
+- Done: removed root clutter (brand identity.zip 5M, codebase-map-clean.html, skills-lock.json), deleted dead app/scanners/stubs.py (no imports, shadowed by source_*), removed dead repo_file_path() + Path/ROOT imports in app/ai.py, removed dead imports AgentFix (ai_agent), Callable (repo_pipeline), json (store); deleted empty tests/__init__.py; archived docs/AI-PLAN/HANDOFF/NEXT + TO_DO.md to docs/archive/; pycache + logs cleaned; TEAM.md request added for main.py HttpUrl (Islam-owned, untouched)
+- State: works — 327 pytest pass, no ownership violations (main.py/models.py/ai_fix.py untouched; ScanAuth/AnalyzeReply/BaseScanner kept after verification they are live)
+- Next: integrator merges hack/n3yx-cleanup; follow-ups left out: split long files (zap 696/main 679/agent 622/review 613), toolkit wrapper merges, test-fixtures prune, frontend rebuild
+- Decisions: skills (.agents/.opencode/.claude) kept — not clutter; app/static/assets kept (tracked build output); audit corrections recorded in TEAM.md requests
