@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import HttpUrl
 
 from app.config import ROOT, settings
 from app.models import (
