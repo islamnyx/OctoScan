@@ -8,8 +8,8 @@ import httpx
 
 from app.config import settings
 from app.models import Finding, Severity
-from app.normalize import from_zap_risk
-from app.scanners.base import BaseScanner
+from app.normalize import clean_cwe, from_zap_risk
+from app.scanners.base import BaseScanner, ScanStopped
 
 # Seed paths with query params / API routes so active scan has injectable
 # targets even when the classic spider only finds static assets.
@@ -31,6 +31,9 @@ SEED_PATHS = (
 # Keep narrow to avoid hiding real findings.
 NOISY_PATH_SUBSTRINGS = ("assets/public/assets/public",)
 STATIC_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map", ".js", ".css")
+# Junk signatures: ZAP bookkeeping alerts with zero security signal.
+# Dropped only at informational risk — never above info.
+JUNK_INFO_TITLES = frozenset({"Modern Web Application", "User Agent Fuzzer"})
 
 
 def _normalize_url(url: str) -> str:
@@ -54,6 +57,40 @@ def _dedup_key(alert: dict, norm_url: str) -> tuple[str, str, str, str]:
     # Prefer stable plugin-based key, fallback to title
     primary = plugin_id if plugin_id else hashlib.sha1(title.encode()).hexdigest()[:8]
     return (primary, norm_url, param, cwe)
+
+
+# ZAP pluginIds for SQL injection (plain + MySQL + PostgreSQL + MSSQL).
+SQLI_PLUGINS = frozenset({"40018", "40019", "40020", "40021", "40022"})
+
+SQLI_FIX = (
+    "Use parameterized queries / prepared statements so user input is never "
+    "concatenated into SQL (JDBC PreparedStatement, Node pg/mysql2 placeholders, "
+    "PHP PDO::prepare, Python DB-API parameters). Prefer ORM bound parameters, "
+    "validate + type-check input server-side, and run the DB user with least "
+    "privilege (no DROP/ALTER/GRANT). A WAF rule is defense-in-depth, not a fix."
+)
+
+
+def _evidence_and_fix(alert: dict) -> tuple[str, str]:
+    """Evidence with payload + response snippet for injection findings.
+
+    Stock ZAP evidence is often just the param name; for SQLi the finding
+    must carry what was sent (attack payload), where (param), and what
+    came back (response snippet) — otherwise nobody can reproduce it.
+    """
+    pluginid = str(alert.get("pluginId") or alert.get("pluginid") or "")
+    solution = alert.get("solution") or "Review and remediate this ZAP finding."
+    if pluginid in SQLI_PLUGINS:
+        param = str(alert.get("param") or "")
+        payload = str(alert.get("attack") or "")
+        snippet = str(alert.get("evidence") or "")[:300]
+        parts = [p for p in (
+            f"param={param}" if param else "",
+            f"payload={payload}" if payload else "",
+            f"response={snippet}" if snippet else "",
+        ) if p]
+        return (" | ".join(parts) or solution, SQLI_FIX)
+    return (alert.get("evidence") or alert.get("param") or "", solution)
 
 
 class ZapScanner(BaseScanner):
@@ -117,7 +154,7 @@ class ZapScanner(BaseScanner):
             # ?q= / /rest/* targets even if spider found only static files.
             # Also try OpenAPI import (Juice Shop exposes /api-docs) —
             # populates REST routes without AJAX/firefox RAM cost.
-            self._seed_targets(client, base, api_key, target)
+            seed_info = self._seed_targets(client, base, api_key, target)
             self._activity("spider crawling the target…")
             spider = client.get(
                 f"{base}/JSON/spider/action/scan/",
@@ -180,6 +217,7 @@ class ZapScanner(BaseScanner):
             skip_notes: list[str] = []
             try:
                 for i, t in enumerate(ascan_targets, 1):
+                    self._check_stop("zap ascan")
                     self._activity(f"active scan {i}/{len(ascan_targets)}: {t[:80]}")
                     remaining = ascan_deadline - time.time()
                     if remaining < 30:
@@ -235,6 +273,11 @@ class ZapScanner(BaseScanner):
                             skip_notes.append(f"{t[:60]}: ascan timed out at cap {cap}s, stopped, continued")
                             continue
                         scanned += 1
+                    except ScanStopped:
+                        # User pressed pause/finish mid-target: do NOT
+                        # swallow into skip_notes — propagate so the
+                        # finally blocks stop ZAP and the pipeline ends now.
+                        raise
                     except RuntimeError:
                         raise
                     except Exception as exc:
@@ -273,6 +316,8 @@ class ZapScanner(BaseScanner):
                 "ascan_per_target_cap": per_target_cap,
                 "ascan_recurse": settings.zap_ascan_recurse,
                 "ascan_skipped": ascan_skipped,
+                "openapi_doc": (seed_info or {}).get("openapi_doc"),
+                "openapi_urls_added": (seed_info or {}).get("openapi_urls_added", 0),
             }
             data["_spider_coverage"] = coverage
             (self.workdir / "zap-alerts.json").write_text(json.dumps(data, indent=2))
@@ -475,6 +520,7 @@ class ZapScanner(BaseScanner):
         if scan_id:
             params["scanId"] = scan_id
         while time.time() < deadline:
+            self._check_stop("zap wait")
             r = client.get(url, params=params)
             r.raise_for_status()
             status = str(r.json().get("status", "0"))
@@ -515,6 +561,7 @@ class ZapScanner(BaseScanner):
                 return []
 
         for _ in range(5):
+            self._check_stop("zap sites-tree")
             urls = _tree_urls()
             if urls:
                 return urls[0] if target not in urls else target
@@ -535,10 +582,15 @@ class ZapScanner(BaseScanner):
             "target looks down or unreachable; active scan not attempted"
         )
 
-    def _seed_targets(self, client: httpx.Client, base: str, api_key: str, target: str) -> None:
+    def _seed_targets(self, client: httpx.Client, base: str, api_key: str, target: str) -> dict:
         """Best-effort tree seeding: injectable URLs + OpenAPI routes.
 
         All cheap (plain HTTP via ZAP proxy, no firefox). Never raises.
+        Returns what was achieved so run() can record honest coverage:
+        {"openapi_doc": url|None, "openapi_urls_added": n}.
+        NOTE: targets that only serve the Swagger *UI* (HTML shell, no raw
+        JSON doc — Juice Shop included) yield zero importable routes; the
+        seed + spider URLs remain the ascan surface in that case.
         """
         root = target.rstrip("/")
         for path in SEED_PATHS:
@@ -550,26 +602,52 @@ class ZapScanner(BaseScanner):
             except Exception:
                 pass
         # OpenAPI import populates /rest/* routes without a browser.
-        for doc in ("/api-docs/swagger.json", "/api-docs/openapi.json", "/swagger.json"):
+        # Verified import = Result OK *and* the Sites tree actually grew
+        # (ZAP answers OK even when the "document" is an HTML shell).
+        info: dict = {"openapi_doc": None, "openapi_urls_added": 0}
+        try:
+            before = len(client.get(
+                f"{base}/JSON/core/view/urls/",
+                params={"apikey": api_key, "baseurl": target},
+            ).json().get("urls") or [])
+        except Exception:
+            before = -1
+        for doc in ("/api-docs/swagger.json", "/api-docs/openapi.json", "/swagger.json", "/openapi.json"):
             try:
                 r = client.get(
                     f"{base}/JSON/openapi/action/importUrl/",
                     params={"apikey": api_key, "url": f"{root}{doc}"},
                 )
-                if r.status_code == 200 and "false" not in r.text.lower()[:50]:
-                    break
+                try:
+                    ok = r.status_code == 200 and r.json().get("Result") == "OK"
+                except Exception:
+                    ok = False
+                if not ok:
+                    continue
+                try:
+                    after = len(client.get(
+                        f"{base}/JSON/core/view/urls/",
+                        params={"apikey": api_key, "baseurl": target},
+                    ).json().get("urls") or [])
+                except Exception:
+                    after = before
+                info = {"openapi_doc": f"{root}{doc}", "openapi_urls_added": max(0, after - before) if before >= 0 else 0}
+                break
             except Exception:
                 pass
+        return info
 
     def _select_ascan_targets(self, client: httpx.Client, base: str, api_key: str, target: str, seed: str) -> list[str]:
         """Pick capped active-scan targets: injectable URLs first.
 
-        Priority (fix D, 2026-09-27): URLs with a query string AND a
-        /rest/ or /api/ path rank first (the real SQLi sink is
-        /rest/products/search?q=); bare SPA routes (/#/..., /search?q=)
-        rank last. URLs containing '#' (client-side SPA routes serving
-        index.html) are dropped outright. Static assets (.js/.css/images/
-        fonts/.map) are excluded — they never yield ascan vulns.
+        Priority: URLs with a query string AND a /rest/ or /api/ path rank
+        first (the real SQLi sink is /rest/products/search?q=); bare API
+        routes second; other parameterized URLs third. Bare SPA routes
+        (/#/..., /search?q=) rank last. Dropped outright: URLs containing
+        '#' (client-side SPA routes serving index.html), static assets
+        (.js/.css/images/fonts/.map — never yield ascan vulns), /assets/*
+        trees and /socket.io/* (polling endpoints that burn budget and
+        flap the target).
         """
         try:
             r = client.get(f"{base}/JSON/core/view/urls/", params={"apikey": api_key, "baseurl": target})
@@ -577,9 +655,16 @@ class ZapScanner(BaseScanner):
             urls = [u for u in (r.json().get("urls") or []) if isinstance(u, str) and u]
         except Exception:
             return [seed]
+
+        def _path(u: str) -> str:
+            return u.lower().split("?", 1)[0]
+
         dynamic = [
             u for u in urls
-            if "#" not in u and not u.lower().split("?")[0].endswith(STATIC_EXTENSIONS)
+            if "#" not in u
+            and not _path(u).endswith(STATIC_EXTENSIONS)
+            and "/assets/" not in _path(u)
+            and "/socket.io/" not in _path(u)
         ]
 
         def _rank(u: str) -> int:
@@ -588,9 +673,9 @@ class ZapScanner(BaseScanner):
             restful = "/rest/" in low or "/api/" in low
             if has_q and restful:
                 return 0
-            if has_q:
-                return 1
             if restful:
+                return 1
+            if has_q:
                 return 2
             if u == seed:
                 return 3
@@ -631,6 +716,7 @@ class ZapScanner(BaseScanner):
         status_url = f"{base}/JSON/ajaxSpider/view/status/"
         try:
             while time.time() < deadline:
+                self._check_stop("zap ajax-spider")
                 s = client.get(status_url, params={"apikey": api_key})
                 s.raise_for_status()
                 if str(s.json().get("status", "")).lower() == "stopped":
@@ -657,6 +743,8 @@ class ZapScanner(BaseScanner):
             # Drop low-value static-asset noise (e.g. User Agent Fuzzer on /assets/*.js)
             # but keep anything with meaningful risk.
             risk_raw = alert.get("risk") or alert.get("riskcode") or "0"
+            if title in JUNK_INFO_TITLES and str(risk_raw).lower() in ("0", "1", "low", "informational", "info"):
+                continue
             if norm_url.lower().endswith(STATIC_EXTENSIONS) and str(risk_raw).lower() in ("0", "1", "low", "informational", "info"):
                 continue
             key = _dedup_key(alert, norm_url)
@@ -664,20 +752,25 @@ class ZapScanner(BaseScanner):
                 continue
             seen.add(key)
             risk = risk_raw
+            pluginid = str(alert.get("pluginId") or alert.get("pluginid") or "")
+            evidence, recommendation = _evidence_and_fix(alert)
             findings.append(
                 Finding(
                     scanner=self.name,
                     title=title,
                     severity=from_zap_risk(risk),
                     description=alert.get("description") or alert.get("other") or title,
-                    evidence=alert.get("evidence") or alert.get("param") or "",
+                    evidence=evidence,
                     location=norm_url,
-                    recommendation=alert.get("solution") or "Review and remediate this ZAP finding.",
-                    cve=(alert.get("cweid") and f"CWE-{alert.get('cweid')}") or None,
+                    recommendation=recommendation,
+                    # ZAP uses cweid -1/0/"0" for "no CWE" (arrives as str) —
+                    # never emit CWE--1/CWE-0 (recovered from b730b65).
+                    cve=clean_cwe(alert.get("cweid")),
                     raw={
-                        "pluginid": alert.get("pluginId") or alert.get("pluginid"),
+                        "pluginid": pluginid,
                         "cweid": alert.get("cweid"),
                         "param": alert.get("param"),
+                        "attack": alert.get("attack"),
                         "risk": risk,
                         "dedup_key": "|".join(key),
                     },

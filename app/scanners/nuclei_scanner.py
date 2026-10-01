@@ -3,6 +3,7 @@ import subprocess
 
 from app.config import settings
 from app.models import Finding, Severity
+from app.normalize import clean_cwe
 from app.scanners.base import BaseScanner, assert_target_reachable
 
 
@@ -18,6 +19,14 @@ NUCLEI_SEVERITY_MAP = {
 
 def _nuclei_severity(raw: str | None) -> Severity:
     return NUCLEI_SEVERITY_MAP.get((raw or "info").strip().lower(), Severity.info)
+
+
+# Recon-class templates run hot at medium in stock Nuclei. An
+# unauthenticated metrics read is fingerprinting fuel, not a direct
+# vuln — downgrade to low (verified live: Juice Shop /metrics, 26 KB).
+NUCLEI_SEVERITY_OVERRIDES: dict[str, Severity] = {
+    "prometheus-metrics": Severity.low,
+}
 
 
 class NucleiScanner(BaseScanner):
@@ -126,14 +135,19 @@ class NucleiScanner(BaseScanner):
                 continue
             seen.add(key)
             severity = _nuclei_severity(info.get("severity"))
+            tuned_from = None
+            override = NUCLEI_SEVERITY_OVERRIDES.get(template_id or "")
+            if override is not None and override != severity:
+                tuned_from, severity = severity.value, override
             if severity.value not in allowed:
                 continue
             cve = info.get("cve-id") or info.get("cveID")
             if isinstance(cve, list):
                 cve = cve[0] if cve else None
-            cwe = info.get("cwe-id") or info.get("cweID")
-            if isinstance(cwe, list):
-                cwe = cwe[0] if cwe else None
+            raw_cwe = info.get("cwe-id") or info.get("cweID")
+            if isinstance(raw_cwe, list):
+                raw_cwe = raw_cwe[0] if raw_cwe else None
+            cwe = clean_cwe(raw_cwe)
             refs = info.get("reference") or []
             if isinstance(refs, str):
                 refs = [refs]
@@ -162,6 +176,7 @@ class NucleiScanner(BaseScanner):
                         "cwe": str(cwe) if cwe else None,
                         "references": refs[:5] if isinstance(refs, list) else [],
                         "template_url": item.get("template-url"),
+                        "severity_tuned_from": tuned_from,
                     },
                 )
             )

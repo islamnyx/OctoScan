@@ -60,3 +60,20 @@ def max_cvss(severities: object) -> float | None:
         if score is not None and (best is None or score > best):
             best = score
     return best
+
+
+# Honest estimates when no vector/score exists (DAST findings carry no
+# CVSS data). Midpoints of the CVSS v3.1 qualitative ranges; ALWAYS
+# paired with raw["cvss_estimated"]=True so estimates never masquerade
+# as measured scores. Applied centrally in normalize.prioritize().
+ESTIMATED_BY_SEVERITY = {
+    "critical": 9.5,
+    "high": 8.0,
+    "medium": 5.5,
+    "low": 2.0,
+    "info": 0.0,
+}
+
+
+def estimated_cvss(severity: str) -> float:
+    return ESTIMATED_BY_SEVERITY.get((severity or "info").strip().lower(), 0.0)

@@ -9,6 +9,7 @@ from app.models import Finding, ScanJob, ScanStatus
 from app.normalize import prioritize
 from app.rules import evaluate_gate
 from app.scanners import SCANNERS
+from app.scanners.base import ScanStopped
 from app.scanners.headers_scanner import HeadersScanner
 from app.scanners.nikto_scanner import NiktoScanner
 from app.scanners.nmap_scanner import NmapScanner
@@ -95,10 +96,24 @@ def run_scan(scan_id: str) -> ScanJob:
         scanner = scanner_cls(job.target_url, workdir)
         # Authenticated scans (v1): session injection; None = anonymous.
         scanner.auth = job.auth
+        # Strict pause/finish: long steps poll this and raise ScanStopped
+        # so the buttons act within seconds, not at the next checkpoint.
+        scanner.stop_check = _stopped
         findings_result = scanner.run()
         coverage_result = dict(getattr(scanner, "coverage", None) or {})
         activity.log(job.id, f"{scanner_cls.name}: finished — {len(findings_result)} finding(s)", kind="done")
         return scanner.name, findings_result, coverage_result
+
+    def _stop_now(reason: str | None, operation: str) -> ScanJob:
+        # A scanner was interrupted mid-step: checkpoint what we have.
+        # The interrupted scanner's partial output is lost by design —
+        # scanners only return complete results; previous steps are kept.
+        # Deliberately NOT recorded in errors: a user stop is not a
+        # failure (an empty-errors finish stays completed, not failed).
+        activity.log(job.id, f"stopped by user ({reason}) during {operation} — finalizing partial results")
+        if reason == "pause":
+            return _pause(job, findings, errors)
+        return finalize_scan(job, findings, errors, early=True)
 
     # Lower CPU priority so the desktop stays responsive on laptops.
     try:
@@ -144,6 +159,8 @@ def run_scan(scan_id: str) -> ScanJob:
                     if coverage:
                         job.coverage[scanner_name] = coverage
                     break
+                except ScanStopped as stopped:
+                    return _stop_now(stopped.reason, cls.name)
                 except Exception as exc:
                     retriable = str(exc).startswith("CONNECTION FAILURE:") and attempts == 0
                     if retriable and not _stopped():
@@ -176,6 +193,9 @@ def run_scan(scan_id: str) -> ScanJob:
                     findings.extend(result)
                     if coverage:
                         job.coverage[scanner_name] = coverage
+                except ScanStopped as stopped:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    return _stop_now(stopped.reason, name)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
                 job.findings = prioritize(findings)

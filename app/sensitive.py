@@ -177,6 +177,63 @@ def _is_ds_store(body: bytes) -> bool:
     return body.startswith(b"\x00\x00\x00\x01Bud1")
 
 
+def _is_listing(body: bytes) -> bool:
+    """True when the body looks like a server-generated directory index
+    (Apache/NGINX autoindex, IIS listing) rather than app content."""
+    if not body or len(body) > 200000:
+        return False
+    text = body.decode("utf-8", "ignore")[:8000].lower()
+    if "<html" not in text and "<title" not in text:
+        return False
+    markers = (
+        "index of /", "directory listing for /", "directory of /",
+        "parent directory", "[to parent directory]",
+    )
+    return any(m in text for m in markers)
+
+
+def _is_server_status(body: bytes) -> bool:
+    # NOTE: no _looks_like_html guard — mod_status output IS an HTML page;
+    # the marker strings below are specific enough on their own.
+    if not body or len(body) > 200000:
+        return False
+    text = body.decode("utf-8", "ignore")
+    return "Apache Status" in text and ("requests currently being processed" in text or "Server Version" in text)
+
+
+def _is_server_info(body: bytes) -> bool:
+    if not body or len(body) > 200000:
+        return False
+    text = body.decode("utf-8", "ignore")
+    return "Apache Server Information" in text and "Server Version" in text
+
+
+def _is_svn_entries(body: bytes) -> bool:
+    if _looks_like_html(body) or len(body) > 20000:
+        return False
+    text = body.decode("utf-8", "ignore")
+    return text.startswith("8\ndir\n") or "has-props\n" in text[:200] or "svn:this_dir" in text[:500]
+
+
+def _is_web_config(body: bytes) -> bool:
+    if len(body) > 100000:
+        return False
+    text = body.decode("utf-8", "ignore").lower()
+    return "<configuration" in text and ("appsettings" in text or "connectionstrings" in text)
+
+
+def _is_composer_json(body: bytes) -> bool:
+    if _looks_like_html(body) or len(body) > 100000:
+        return False
+    try:
+        import json as _json
+
+        doc = _json.loads(body.decode("utf-8", "ignore"))
+        return isinstance(doc, dict) and ("require" in doc or "name" in doc)
+    except Exception:
+        return False
+
+
 # Direct probes: high-value paths no crawler reliably discovers.
 # Unlike flag_sensitive_files (which re-examines already-seen URLs),
 # these are fetched outright — a handful of GETs, signature-verified,
@@ -192,6 +249,16 @@ WELLKNOWN_PROBES: list[tuple[str, str, Severity, object, str]] = [
      ".env files routinely contain production secrets: DB passwords, API keys, session salts."),
     ("/.DS_Store", "Exposed .DS_Store file", Severity.medium, _is_ds_store,
      ".DS_Store leaks directory listings and filenames, aiding targeted attacks."),
+    ("/server-status", "Exposed Apache server-status page", Severity.high, _is_server_status,
+     "mod_status reveals live requests, client IPs and server internals to anyone. Restrict to localhost."),
+    ("/server-info", "Exposed Apache server-info page", Severity.medium, _is_server_status,
+     "mod_info discloses loaded modules and configuration. Restrict to localhost."),
+    ("/.svn/entries", "Exposed SVN metadata (.svn/entries)", Severity.high, _is_svn_entries,
+     "Subversion metadata leaks repository paths and enables source reconstruction. Remove .svn from the web root."),
+    ("/web.config", "Exposed IIS web.config", Severity.medium, _is_web_config,
+     "web.config routinely carries connection strings and secrets. Never serve it from the web root."),
+    ("/composer.json", "Exposed composer.json", Severity.low, _is_composer_json,
+     "Dependency manifests disclose exact package versions for targeted CVE exploitation. Remove from the web root."),
 ]
 
 
@@ -293,6 +360,39 @@ def flag_sensitive_files(
     for url in sorted(seen):
         classified = _classify(url)
         if classified is None:
+            # Unclassified but directory-shaped: a browsable index is a
+            # finding in its own right (e.g. Juice Shop /ftp/ advertised
+            # by robots.txt). 200 + index markers + not the app shell.
+            if _path(url).endswith("/"):
+                if not root_fetched:
+                    root_body = _fetch_body(target_url, auth)
+                    root_fetched = True
+                status, body = _fetch_status_body(url, auth)
+                if (status == 200 and body and _is_listing(body)
+                        and body != root_body):
+                    discoverers = sorted(seen[url])
+                    out.append(
+                        Finding(
+                            scanner="sensitive-files",
+                            title=f"Exposed directory listing: {_path(url)}",
+                            severity=Severity.medium,
+                            description=(
+                                "The server renders a browsable directory index at "
+                                f"{url} (seen by: {', '.join(discoverers)}), exposing file "
+                                "names and structure. Disable auto-indexing or restrict access."
+                            ),
+                            evidence=f"GET {url} -> HTTP 200 directory index",
+                            location=url,
+                            recommendation="Disable directory auto-indexing (e.g. `autoindex off`, "
+                            "`Options -Indexes`), or require authentication for the directory.",
+                            raw={
+                                "url": url,
+                                "discovered_by": discoverers,
+                                "directory_listing": True,
+                                "catch_all_verified": False,
+                            },
+                        )
+                    )
             continue
         if not root_fetched:
             root_body = _fetch_body(target_url, auth)

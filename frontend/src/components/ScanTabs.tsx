@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, PRESETS, REPO_SCANNERS, WEB_SCANNERS, type Provider } from '../lib/api';
+import { MobileApk } from './MobileApk';
 import { Button, Input, Select } from './ui/controls';
 import { Tabs } from './ui/tabs';
 
@@ -175,12 +176,7 @@ export function ScanTabs({ initial = 'pane-web' }: { initial?: string }) {
         {tab === 'pane-web' && <WebForm />}
         {tab === 'pane-repo' && <RepoForm />}
         {tab === 'pane-ai' && <AIProvider />}
-        {tab === 'pane-apk' && (
-          <div className="grid gap-3">
-            <div className="rounded-md border border-border-line bg-background p-2.5 text-[13px] text-ink-dim">▣ MOBILE APK — incoming. Manifest · components · secrets · crypto · permissions. Static only, never executed.</div>
-            <Button disabled title="Coming soon">Scan APK</Button>
-          </div>
-        )}
+        {tab === 'pane-apk' && <MobileApk />}
       </div>
     </div>
   );

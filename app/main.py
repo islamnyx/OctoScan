@@ -45,6 +45,13 @@ def require_api_key(x_api_key: str = Header(default="")):
 
 app = FastAPI(title="OctoScan", version="0.1.0")
 app.add_middleware(SecurityHeadersMiddleware)
+# APK bridge (hack/n3yx-scan-quality, app/apk.py owns the router — mount only).
+try:
+    from app.apk import router as apk_router
+
+    app.include_router(apk_router)
+except Exception:
+    pass
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # React dashboard build (frontend/ -> app/static) references /assets/*.
 if (STATIC_DIR / "assets").is_dir():
@@ -109,7 +116,8 @@ def export_scan(scan_id: str, api_key: str = Depends(require_api_key)):
     job = load_job(scan_id)
     if not job:
         raise HTTPException(404, "scan not found")
-    return JSONResponse(job.model_dump(mode="json"))
+    # Session material lives in auth.json, never in exports.
+    return JSONResponse(job.model_dump(mode="json", exclude={"auth"}))
 
 
 @app.get("/api/scans/{scan_id}/report")

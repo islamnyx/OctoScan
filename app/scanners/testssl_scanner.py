@@ -13,15 +13,11 @@ class TestsslScanner(BaseScanner):
 
     def run(self) -> list[Finding]:
         if self.scheme != "https" and self.port != 443:
-            return [
-                Finding(
-                    scanner=self.name,
-                    title="Skipped TLS check (target is not HTTPS)",
-                    severity=Severity.info,
-                    description="testssl.sh only runs against HTTPS targets.",
-                    location=self.target_url,
-                )
-            ]
+            # No TLS surface to test — a skipped check is not a finding.
+            # (Previously emitted an info Finding that polluted finding
+            # counts, radar and sunburst. Empty list keeps scanners_run
+            # accurate via the pipeline's run-recording.)
+            return []
         out_json = self.workdir / "testssl.json"
         # testssl.sh refuses to write into a non-empty --jsonfile
         # ("use --append or (re)move it") and appends a FATAL after the

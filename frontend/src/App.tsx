@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { CommandPalette } from './components/Palette';
 import { CoveragePanel, LiveFeed, KpiCards, SeverityDonut, usePosture } from './components/Dashboard';
 import { AttackRadar, VulnSunburst } from './components/Visuals';
+import { Compare } from './components/Compare';
 import { ScanTabs } from './components/ScanTabs';
 import { HistoryTables } from './components/History';
 import type { NavId } from './components/Sidebar';
@@ -71,7 +72,7 @@ export default function App() {
           <div className="p-4"><CoveragePanel web={web} repo={repo} /></div>
         </div>
       </div>
-      <div className="mb-[18px] grid grid-cols-2 gap-4 max-lg:grid-cols-1"><AttackRadar /><VulnSunburst /></div>
+      <div className="mb-[18px] grid grid-cols-2 gap-4 max-lg:grid-cols-1"><AttackRadar web={web} repo={repo} /><VulnSunburst web={web} repo={repo} /></div>
 
       {/* LAUNCH */}
       <p id="launch" className="mb-2.5 font-mono text-xs text-ink-dim">New scan</p>
@@ -82,6 +83,10 @@ export default function App() {
       {/* HISTORY */}
       <p id="history" className="mb-2.5 mt-[22px] font-mono text-xs text-ink-dim"><span id="web-filter-anchor" />History</p>
       <section aria-label="History"><HistoryTables web={web} repo={repo} /></section>
+
+      {/* COMPARE */}
+      <p id="compare" className="mb-2.5 mt-[22px] font-mono text-xs text-ink-dim">Compare runs</p>
+      <section aria-label="Compare runs"><Compare web={web} repo={repo} /></section>
 
       <div className="mt-6 flex items-center gap-2 rounded-panel border border-border-line bg-surface-panel p-4 text-[13px] text-ink-dim">
         <ShieldCheck size={15} className="shrink-0 text-success" /> Static scans catch secrets, known CVEs and risky sinks — business-logic flaws need the AI pass or manual review.

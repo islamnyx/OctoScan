@@ -1,11 +1,25 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import httpx
 
 from app.models import Finding, ScanAuth
+
+
+class ScanStopped(Exception):
+    """Cooperative stop: pause/finish pressed mid-scanner.
+
+    Long steps (ZAP spider/ascan waits) poll stop_check and raise this
+    instead of running to their timeout, so the buttons act within
+    seconds instead of at the next between-scanners checkpoint.
+    Carries "pause" or "finish" so the pipeline finalizes correctly.
+    """
+
+    def __init__(self, reason: str = "finish"):
+        super().__init__(f"scan stopped by user ({reason})")
+        self.reason = reason
 
 
 def assert_target_reachable(target_url: str, timeout: float = 10.0) -> None:
@@ -39,6 +53,19 @@ class BaseScanner(ABC):
         # Session injection for authenticated scans (v1). Set by the
         # pipeline from job.auth after construction; None = anonymous.
         self.auth: ScanAuth | None = None
+        # Cooperative stop hook, set by the pipeline to its _stopped()
+        # control-file reader. Long steps call _check_stop() in their
+        # wait loops; None = run to completion (old behavior).
+        self.stop_check: Optional[Callable[[], Optional[str]]] = None
+
+    def _check_stop(self, what: str = "") -> None:
+        """Raise ScanStopped if pause/finish was requested. Cheap: one
+        small control.json read per call — safe inside 3s poll loops."""
+        if self.stop_check is None:
+            return
+        reason = self.stop_check()
+        if reason:
+            raise ScanStopped(reason)
 
     def auth_headers(self) -> dict[str, str]:
         """Custom headers to send (Cookie handled separately)."""

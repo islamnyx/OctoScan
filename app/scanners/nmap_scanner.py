@@ -38,6 +38,7 @@ class NmapScanner(BaseScanner):
     def _parse(self, xml_path: Path) -> list[Finding]:
         findings: list[Finding] = []
         skipped_self: list[str] = []
+        skipped_target: list[str] = []
         root = ET.parse(xml_path).getroot()
         for port in root.findall(".//port"):
             state = (port.find("state").get("state") if port.find("state") is not None else "")
@@ -59,6 +60,11 @@ class NmapScanner(BaseScanner):
             # Those are scan infrastructure, not target attack surface.
             if self._is_self_port(portid):
                 skipped_self.append(f"{portid}/{proto}")
+                continue
+            # The target's own web port (the URL under test) is expected
+            # open — reporting it as a finding is lab noise, not signal.
+            if portid == str(self.port):
+                skipped_target.append(f"{portid}/{proto}")
                 continue
             # Nmap labels unknown ports from its port table (method=table,
             # low conf) — e.g. 3000 as "ppp" — even when its own probe
@@ -112,6 +118,17 @@ class NmapScanner(BaseScanner):
                         description="Nmap only found the scanner's own API/ZAP ports on loopback; they were excluded as scan infrastructure.",
                         location=self.host,
                         raw={"skipped_self_ports": skipped_self},
+                    )
+                )
+            elif skipped_target:
+                findings.append(
+                    Finding(
+                        scanner=self.name,
+                        title=f"Only the target's own port ({', '.join(skipped_target)}) open — expected",
+                        severity=Severity.info,
+                        description="Nmap found no open ports besides the scanned web target's own port, which is expected to be open.",
+                        location=self.host,
+                        raw={"skipped_target_ports": skipped_target},
                     )
                 )
             else:

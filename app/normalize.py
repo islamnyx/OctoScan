@@ -1,3 +1,4 @@
+from app.cvss import estimated_cvss
 from app.models import Finding, Severity
 
 import re
@@ -54,10 +55,50 @@ def nmap_port_severity(state: str, service: str) -> Severity:
     return Severity.low
 
 
+# Canonical severity per finding concept: the same root cause reported
+# by 3 scanners must not flip severity between rescans (keeps Compare
+# diffs clean). Applied at merge time; the original severity is kept in
+# raw["severity_normalized_from"] when it changes.
+CONCEPT_SEVERITY = {
+    "cors-star": Severity.medium,
+    "csp-missing": Severity.medium,
+    "hsts-missing": Severity.low,
+    "frame-options-missing": Severity.low,
+    "content-type-options-missing": Severity.low,
+    "referrer-policy-missing": Severity.low,
+    "permissions-policy-missing": Severity.info,
+}
+
+
+def _canonical_severity(concept: str) -> Severity | None:
+    if concept in CONCEPT_SEVERITY:
+        return CONCEPT_SEVERITY[concept]
+    # ZAP Timestamp Disclosure (plugin 10096, any param): recon noise.
+    if concept.startswith("zap-10096-"):
+        return Severity.info
+    return None
+
+
+def clean_cwe(value: object) -> str | None:
+    """Normalize a CWE id, treating ZAP's -1/0/"0" ("no CWE") as none.
+    Accepts 89, "89", "CWE-89"; returns "CWE-89" or None."""
+    s = str(value or "").strip()
+    if s.lower().startswith("cwe-"):
+        s = s[4:]
+    return f"CWE-{int(s)}" if s.lstrip("-").isdigit() and int(s) > 0 else None
+
+
 def prioritize(findings: list[Finding]) -> list[Finding]:
-    findings = dedupe(findings)
+    findings = correlate(dedupe(findings))
+    scored: list[Finding] = []
+    for f in findings:
+        if f.cvss is None:
+            data = dict(f.raw or {})
+            data["cvss_estimated"] = True
+            f = f.model_copy(update={"cvss": estimated_cvss(f.severity.value), "raw": data})
+        scored.append(f)
     return sorted(
-        findings,
+        scored,
         key=lambda f: (SEVERITY_RANK[f.severity], f.cvss or 0),
         reverse=True,
     )
@@ -185,7 +226,13 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
     merged: list[Finding] = []
     for concept, items in grouped.items():
         if len(items) == 1:
-            merged.append(items[0])
+            solo = items[0]
+            canonical = _canonical_severity(concept)
+            if canonical is not None and canonical != solo.severity:
+                data = dict(solo.raw or {})
+                data["severity_normalized_from"] = solo.severity.value
+                solo = solo.model_copy(update={"severity": canonical, "raw": data})
+            merged.append(solo)
             continue
         if concept == "nikto-speculative-paths":
             # Rewrite: winner title would otherwise be a single random
@@ -209,6 +256,7 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
                     update={
                         "title": f"Nikto: {n} speculative paths returned non-404 responses (likely SPA catch-all)",
                         "severity": Severity.info,
+                        "location": min(urls, key=len) if urls else winner.location,
                         "description": (
                             f"{n} guessed paths returned non-404 responses ('This might be "
                             "interesting'). On SPA servers these are typically the app shell "
@@ -229,21 +277,79 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
         winner = sorted(items, key=lambda f: (SEVERITY_RANK[f.severity], len(f.description or "")), reverse=True)[0]
         sources = sorted({f.scanner for f in items})
         urls = sorted({f.location for f in items if f.location})
+        # Representative URL: the shortest (usually the site root) so
+        # scan-to-scan diffs compare the same string even when the merged
+        # URL set shifts between crawls.
+        rep_url = min(urls, key=len) if urls else winner.location
         data = dict(winner.raw or {})
         data["merged_from"] = [f.model_dump(mode="json") for f in items if f.id != winner.id]
         data["merged_concept"] = concept
         data["merged_count"] = len(items)
         data["merged_sources"] = sources
         data["affected_urls"] = urls
+        if rep_url != winner.location:
+            data["location_normalized_from"] = winner.location
+        canonical = _canonical_severity(concept)
+        new_sev = canonical if canonical is not None else winner.severity
+        if new_sev != winner.severity:
+            data["severity_normalized_from"] = winner.severity.value
         extra = f" Also reported by {', '.join(sources)} ({len(items)}x, {len(urls)} URL(s))."
+        update: dict = {"location": rep_url, "severity": new_sev, "raw": data}
         if extra not in (winner.description or ""):
-            winner = winner.model_copy(
-                update={
-                    "description": (winner.description or "") + extra,
-                    "raw": data,
-                }
-            )
-        else:
-            winner = winner.model_copy(update={"raw": data})
-        merged.append(winner)
+            update["description"] = (winner.description or "") + extra
+        merged.append(winner.model_copy(update=update))
     return passthrough + merged
+
+
+def correlate(findings: list[Finding]) -> list[Finding]:
+    """Cross-finding attack chains (same scan, no model needed).
+
+    - robots.txt → /ftp → directory listing: advertised path renders an
+      index. The listing finding carries the chain.
+    - login HTTP 500 → SQLi candidate: the SQLi finding points at the
+      login URL for auth-bypass testing.
+    No matches = findings untouched.
+    """
+    def _path(loc: str) -> str:
+        try:
+            from urllib.parse import urlparse
+
+            return (urlparse(loc or "").path or "/").rstrip("/") or "/"
+        except Exception:
+            return "/"
+
+    locs = [(f, _path(f.location or "")) for f in findings]
+    has_robots = any(p == "/robots.txt" for _, p in locs)
+    ftp_locs = sorted({f.location for f, p in locs if p in ("/ftp",)})
+    listings = [f for f in findings if "directory listing" in (f.title or "").lower()
+                or "directory index" in (f.title or "").lower()]
+    logins_500 = [
+        f for f in findings
+        if "login" in (f.location or "").lower()
+        and ("500" in (f.evidence or "") or "error disclosure" in (f.title or "").lower())
+    ]
+    sqlis = [f for f in findings if "sql injection" in (f.title or "").lower()]
+
+    out: list[Finding] = []
+    for f in findings:
+        data = dict(f.raw or {})
+        desc = f.description or ""
+        changed = False
+        if f in listings and has_robots and ftp_locs:
+            chain = ["robots.txt"] + ftp_locs + [f.location]
+            data["attack_chain"] = chain
+            add = (" Attack chain: robots.txt is fetchable and advertises a path "
+                   "that renders a browsable directory index — crawl advertised "
+                   "paths instead of ignoring robots output.")
+            if add not in desc:
+                desc += add
+                changed = True
+        if f in sqlis and logins_500:
+            data["login_500_candidate"] = sorted({str(x.location) for x in logins_500})
+            add = (" The login endpoint also returns HTTP 500 — test authentication "
+                   "bypass payloads there (e.g. `' OR 1=1' --`).")
+            if add not in desc:
+                desc += add
+                changed = True
+        out.append(f.model_copy(update={"description": desc, "raw": data}) if changed else f)
+    return out

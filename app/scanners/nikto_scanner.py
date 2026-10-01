@@ -15,20 +15,12 @@ from app.scanners.base import BaseScanner, assert_target_reachable
 HEADER_DUP_IDS = {"013587"}
 INFO_IDS = {"999990", "007342", "999957", "999956", "999955"}
 
-# Stack-specific checks that are guaranteed false positives on servers
-# returning their SPA shell for unknown paths. Verified 2026-09-11:
-# GET /JAMonAdmin.jsp on Juice Shop (Node) returns HTTP 200 with a body
-# byte-identical to / — there is no Java admin console. Never ship the
-# attached CVE claim without a live catch-all check first.
-FP_PRONE_IDS = {"007303"}
-
-# Sensitive-file guesses that claim file content was retrieved
-# (.htpasswd "Contains authorization information", shell histories).
-# Verified 2026-09-11 on Juice Shop: /.htpasswd, /.bash_history and
-# /.sh_history all return HTTP 200 with a body byte-identical to /
-# (9393 bytes) — the SPA shell, not credentials. Same live catch-all
-# check as JAMon applies before that language goes in front of a client.
-SENSITIVE_FILE_IDS = {"002739", "002743", "002756"}
+# Verified 2026-09-11 on Juice Shop (Node): /JAMonAdmin.jsp, /.htpasswd,
+# /.bash_history, /.sh_history all return HTTP 200 with a body
+# byte-identical to / (9393 bytes) — the SPA shell, not the claimed file.
+# The generic catch-all check below (every path-based finding) supersedes
+# the old per-ID lists, so no such file claim ships without a live
+# body comparison first.
 
 HIGH_KEYWORDS = (
     "command execution",
@@ -280,13 +272,20 @@ class NiktoScanner(BaseScanner):
             seen.add(key)
             location = self.target_url.rstrip("/") + rel_url
             short = _smart_truncate(msg, 100)
+            # HSTS is meaningless on plain HTTP (the headers scanner
+            # skips it there too) — drop, don't ship noise.
+            if vid == "013587" and "strict-transport-security" in msg.lower() and self.scheme != "https":
+                continue
             severity = _severity(vid, msg)
             description = msg
             recommendation = _recommendation(msg, item.get("references"))
             is_speculative = msg.lower().strip().rstrip(".") == "this might be interesting"
-            needs_catchall_check = (
-                vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS or is_speculative
-            ) and rel_url != "/"
+            # Catch-all check on EVERY path-based finding: SPA servers
+            # answer unknown paths with HTTP 200 + index.html, which Nikto
+            # reads as "path exists". Byte-compare against /; identical
+            # bodies are the app shell. Root body is fetched once and
+            # cached; fail-open (keep) on any network error.
+            needs_catchall_check = rel_url != "/"
             is_catchall = self._is_spa_catchall(location) if needs_catchall_check else False
             if is_speculative and is_catchall:
                 # Collapse later: one aggregated finding for all
@@ -296,7 +295,7 @@ class NiktoScanner(BaseScanner):
                 )
                 continue
             fp_note = ""
-            if is_catchall and (vid in FP_PRONE_IDS or vid in SENSITIVE_FILE_IDS):
+            if is_catchall:
                 severity = Severity.info
                 fp_note = (
                     " [Likely false positive: this path returns content identical to /. "

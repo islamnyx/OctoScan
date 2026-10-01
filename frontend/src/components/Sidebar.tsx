@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { ChevronLeft, FlaskConical, History, LayoutDashboard, Radar, Terminal } from 'lucide-react';
+import { ArrowLeftRight, ChevronLeft, FlaskConical, History, LayoutDashboard, Radar, Terminal } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-export type NavId = 'overview' | 'launch' | 'history' | 'intel';
+export type NavId = 'overview' | 'launch' | 'history' | 'intel' | 'compare';
 const LINKS: { id: NavId; label: string; icon: React.ReactNode; num: string }[] = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={15} />, num: '01' },
   { id: 'launch', label: 'New scan', icon: <FlaskConical size={15} />, num: '02' },
   { id: 'history', label: 'History', icon: <History size={15} />, num: '03' },
   { id: 'intel', label: 'Severity & coverage', icon: <Radar size={15} />, num: '04' },
+  { id: 'compare', label: 'Compare runs', icon: <ArrowLeftRight size={15} />, num: '05' },
 ];
 
 export function Sidebar({ collapsed, onToggle, onPalette, running, total, active, onNav, onGotoTab }: {
