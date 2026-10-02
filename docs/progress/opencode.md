@@ -154,3 +154,9 @@
 - State: works — live spot-checks (ftp HIGH, boolean SQLi, nuclei parse) + offline re-prioritize of da29 (unique idempotent ids, SQLi 0.95/True)
 - Next: commit slice; next scan proves new shape end-to-end
 - Decisions: old rows keep random ids until rescanned (fine); verified=False reserved for refuted (unused); ceiling 20 unchanged
+
+## 05:00 - Logged to Notion + merged to main (hack/n3yx-scan-quality)
+- Done: Notion 03 Progress Log appended (Oct-2 day summary, 7 bullets); committed da1afac (28 files, +2898/-388, no secrets in diff); pushed branch + fast-forward merged to main (4f32d17..da1afac) + pushed; 391 pytest green on main, tree clean
+- State: main = branch; app 200 serving merged code (restarted before merge)
+- Next: agent integration (items 12-16 unblock it); laters (10) IDOR diff, (11) DOM XSS
+- Decisions: remote still points at startup-mvp (push accepted with moved-repo notice); left as-is so others' setups don't break
