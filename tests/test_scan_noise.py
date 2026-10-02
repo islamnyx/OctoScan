@@ -33,12 +33,15 @@ def test_zap_cwe_invalid_never_emitted(tmp_path):
         _alert("SQL Injection", risk="High", cweid="89",
                url="http://localhost:3000/rest/products/search?q=x"),
     ])
-    by_title = {f.title: f.cve for f in out}
-    assert by_title["A"] is None
-    assert by_title["B"] is None
-    assert by_title["C"] is None
-    assert by_title["D"] is None
-    assert by_title["SQL Injection"] == "CWE-89"
+    by_title = {f.title: f for f in out}
+    for t in ("A", "B", "C", "D"):
+        assert by_title[t].cwe == []
+        assert by_title[t].cve is None
+        assert by_title[t].owasp == []
+    sqli = by_title["SQL Injection"]
+    assert sqli.cwe == ["CWE-89"]
+    assert sqli.cve is None  # weaknesses go in cwe, never fabricated CVEs
+    assert sqli.owasp == ["A03:2021-Injection"]
 
 
 def test_zap_junk_info_dropped_but_kept_when_real(tmp_path):
@@ -97,15 +100,18 @@ def test_nmap_only_target_port_gives_expected_marker(tmp_path):
         '<service name="http" method="table" conf="3"/></port>'
         "</ports></host></nmaprun>"
     )
-    out = NmapScanner("http://localhost:3000", tmp_path)._parse(xml)
-    assert len(out) == 1
-    assert out[0].severity == Severity.info
-    assert "expected" in out[0].title
+    nmap = NmapScanner("http://localhost:3000", tmp_path)
+    out = nmap._parse(xml)
+    # No finding — the expected-open note lives in coverage, not counts.
+    assert out == []
+    assert nmap.coverage["status"] == "not-applicable"
+    assert "expected" in nmap.coverage["reason"]
 
 
-def test_nuclei_prometheus_metrics_tuned_to_low(tmp_path):
+def test_nuclei_prometheus_metrics_stays_medium(tmp_path):
     import json
 
+    from app.models import Severity
     from app.scanners.nuclei_scanner import NucleiScanner
 
     jl = tmp_path / "nuclei.jsonl"
@@ -116,5 +122,6 @@ def test_nuclei_prometheus_metrics_tuned_to_low(tmp_path):
     }) + "\n")
     out = NucleiScanner("http://localhost:3000", tmp_path)._parse(jl)
     assert len(out) == 1
-    assert out[0].severity == Severity.low
-    assert out[0].raw["severity_tuned_from"] == "medium"
+    # /metrics exposes internals — kept at medium, not tuned down.
+    assert out[0].severity == Severity.medium
+    assert out[0].raw.get("severity_tuned_from") is None

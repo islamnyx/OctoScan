@@ -8,7 +8,8 @@ import httpx
 
 from app.config import settings
 from app.models import Finding, Severity
-from app.normalize import clean_cwe, from_zap_risk
+from app.normalize import AUTH_PATH_RE, LOGIN_PATH_RE, clean_cwe, from_zap_risk
+from app.owasp import owasp_for
 from app.scanners.base import BaseScanner, ScanStopped
 
 # Seed paths with query params / API routes so active scan has injectable
@@ -16,12 +17,13 @@ from app.scanners.base import BaseScanner, ScanStopped
 # Juice Shop SQLi lives at /rest/products/search?q= — spider never
 # discovers ? URLs on its own, so without seeds ascan fires at / + .js
 # and finds only passive issues (CSP/timestamp), never SQLi/XSS.
+# NOTE: bare /api was dropped (2026-10-03): it answers HTTP 500 with no
+# injectable params — an ascan slot burned for an error page.
 SEED_PATHS = (
     "/rest/products/search?q=ZapTest",
     "/rest/products/search?q='",
     "/search?q=ZapTest",
     "/rest/user/login",
-    "/api",
     "/ftp",
 )
 # NOTE: "/#/search?q=ZapTest" was removed (2026-09-27): URLs containing '#'
@@ -34,6 +36,90 @@ STATIC_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", "
 # Junk signatures: ZAP bookkeeping alerts with zero security signal.
 # Dropped only at informational risk — never above info.
 JUNK_INFO_TITLES = frozenset({"Modern Web Application", "User Agent Fuzzer"})
+
+# ZAP pluginId -> OWASP Top 10 2021 category. Covers the plugins we
+# actually see; unknown plugins fall back to the central CWE table
+# (app/owasp.py), then to [] (never invented). NOTE: plugin 10109
+# (Modern TLS info) is deliberately absent — it reports cweid -1
+# ("none") and any category would be fabricated (fixed b730b65).
+PLUGIN_OWASP: dict[str, str] = {
+    "40018": "A03:2021-Injection",  # SQL Injection
+    "40019": "A03:2021-Injection",  # SQL Injection (MySQL)
+    "40020": "A03:2021-Injection",  # SQL Injection (PostgreSQL)
+    "40021": "A03:2021-Injection",  # SQL Injection (MSSQL)
+    "40022": "A03:2021-Injection",  # SQL Injection (Oracle)
+    "40012": "A03:2021-Injection",  # Cross Site Scripting (Reflected)
+    "40014": "A03:2021-Injection",  # Cross Site Scripting (Persistent)
+    "40032": "A03:2021-Injection",  # .htaccess Information Leak
+    "90033": "A03:2021-Injection",  # Loosely Scoped Cookie
+    "90022": "A05:2021-Security Misconfiguration",  # Application Error Disclosure
+    "10098": "A01:2021-Broken Access Control",  # CORS misconfiguration
+    "10038": "A05:2021-Security Misconfiguration",  # CSP missing
+    "10055": "A05:2021-Security Misconfiguration",  # CSP directive fallback
+    "10035": "A05:2021-Security Misconfiguration",  # HSTS missing
+    "10020": "A05:2021-Security Misconfiguration",  # X-Frame-Options missing
+    "10021": "A05:2021-Security Misconfiguration",  # X-Content-Type-Options missing
+    "10015": "A05:2021-Security Misconfiguration",  # Incomplete cache-control
+    "2": "A01:2021-Broken Access Control",  # Private IP disclosure
+}
+
+
+def _owasp_for(plugin_id: str, cwe_id: str) -> list[str]:
+    """OWASP category for a ZAP alert. [] when unknown — never guessed."""
+    if plugin_id and plugin_id in PLUGIN_OWASP:
+        return [PLUGIN_OWASP[plugin_id]]
+    return owasp_for(cwe=cwe_id)
+
+
+# ZAP pluginId -> finding class for the central OWASP table (app/owasp.py).
+PLUGIN_CLASS: dict[str, str] = {
+    "40018": "sqli", "40019": "sqli", "40020": "sqli",
+    "40021": "sqli", "40022": "sqli",
+    "40012": "xss", "40014": "xss",
+    "90022": "error-disclosure",
+    "10098": "cors",
+    "10038": "missing-security-header", "10035": "missing-security-header",
+    "10055": "missing-security-header",
+    "10020": "missing-security-header", "10021": "missing-security-header",
+    "10015": "missing-security-header",
+    "2": "private-ip",
+    "10096": "timestamp-disclosure",
+}
+
+
+# Polling transports (socket.io long-polling URLs carry transport IDs
+# that passive rules misread as session IDs / missing headers). Never
+# an ascan target and never reported — counted in coverage instead.
+SOCKETIO_MARKERS = ("/socket.io", "socket.io?")
+
+# Static dead-ends: no params, no behavior — ascan injects into a void.
+# Dropped from targets outright (passive findings about them, if any,
+# still report normally).
+JUNK_ASCAN_BASENAMES = frozenset({
+    "sitemap.xml", "swagger.json", "openapi.json", "robots.txt",
+    "favicon.ico", "favicon-16x16.png", "favicon-32x32.png",
+})
+
+
+def _target_value(u: str) -> int:
+    """Ascan value score (higher = scan earlier). Injectable surface
+    first: parameterized API routes, then bare API routes, then any
+    parameterized URL; bare pages last. Static dead-ends score ~0 and
+    are cut by the ceiling/budget before they burn slots."""
+    low = u.lower()
+    if low.rsplit("/", 1)[-1].split("?", 1)[0] in JUNK_ASCAN_BASENAMES:
+        return -1000
+    score = 0
+    has_q = "?" in u and "=" in u.split("?", 1)[1]
+    if has_q:
+        score += 100
+    elif "?" in u:
+        score += 40
+    if "/rest/" in low or "/api/" in low or low.rstrip("/").endswith("/api-docs"):
+        score += 120
+    if LOGIN_PATH_RE.search(u or "") or AUTH_PATH_RE.search(u or ""):
+        score += 30
+    return score
 
 
 def _normalize_url(url: str) -> str:
@@ -93,6 +179,119 @@ def _evidence_and_fix(alert: dict) -> tuple[str, str]:
     return (alert.get("evidence") or alert.get("param") or "", solution)
 
 
+def _available_mb() -> int | None:
+    """Free + reclaimable RAM in MB (MemAvailable), else None (fail-open)."""
+    try:
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return None
+
+
+def _firefox_pids() -> set[int]:
+    """PIDs of running firefox binaries (any owner). Best-effort."""
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            ["ps", "-eo", "pid,comm"], capture_output=True, text=True, timeout=10
+        ).stdout
+    except Exception:
+        return set()
+    pids: set[int] = set()
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) == 2 and parts[1] in ("firefox-esr", "firefox", "firefox-bin"):
+            try:
+                pids.add(int(parts[0]))
+            except ValueError:
+                pass
+    return pids
+
+
+def _reap_firefox(pids: set[int], grace_s: float = 10.0) -> None:
+    """SIGTERM then SIGKILL firefox PIDs spawned by our crawl.
+
+    Only PIDs in `pids` (snapshotted as new during our run) are signalled —
+    pre-existing PIDs such as a desktop browser are never touched. PIDs are
+    re-validated as firefox before each signal (PID reuse guard).
+    """
+    import os
+    import signal
+    import subprocess
+    import time as _time
+
+    def _is_firefox(pid: int) -> bool:
+        try:
+            out = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "comm="],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+            return out in ("firefox-esr", "firefox", "firefox-bin")
+        except Exception:
+            return False
+
+    targets = [p for p in pids if _is_firefox(p)]
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+    deadline = _time.time() + grace_s
+    while _time.time() < deadline and any(_is_firefox(p) for p in targets):
+        _time.sleep(1)
+    for pid in targets:
+        if _is_firefox(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+
+def _swagger_ui_init_paths(js_text: str) -> list[str]:
+    """Extract API paths embedded in a swagger-ui-init.js bundle.
+
+    Juice Shop serves no raw swagger.json (the URL returns the Swagger
+    UI HTML shell); its spec lives as a `swaggerDoc` object inside
+    swagger-ui-init.js. Returns path keys (e.g. ["/orders"]) found
+    under the first "paths" object, servers ignored. [] on any error.
+    """
+    try:
+        text = js_text or ""
+        idx = text.find('"paths"')
+        if idx < 0:
+            return []
+        brace = text.find("{", idx)
+        if brace < 0:
+            return []
+        depth = 0
+        end = -1
+        for i in range(brace, min(len(text), brace + 20000)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end < 0:
+            return []
+        import json as _json
+
+        try:
+            obj = _json.loads(text[brace:end + 1])
+        except Exception:
+            return []
+        if not isinstance(obj, dict):
+            return []
+        return [p for p in obj.keys() if isinstance(p, str) and p.startswith("/")]
+    except Exception:
+        return []
+
+
 class ZapScanner(BaseScanner):
     name = "zap"
 
@@ -143,7 +342,9 @@ class ZapScanner(BaseScanner):
             # traffic (spider + ascan) via replacer request-header rules.
             # Verified 2026-09-16: REQ_HEADER rules fire even when the
             # header is absent, including on API-initiated requests.
+            # Purge first: killed workers leak ENABLED stale rules.
             # Removed in the outer finally so sessions never leak scans.
+            self._purge_stale_auth_rules(client, base, api_key)
             auth_rules = self._apply_auth_rules(client, base, api_key)
             client.get(
                 f"{base}/JSON/core/action/accessUrl/",
@@ -308,8 +509,12 @@ class ZapScanner(BaseScanner):
             self._activity(f"collecting alerts ({len(data.get('alerts', []))} raw)")
             coverage = {
                 "classic_spider": True,
+                "spider_found": found,
                 "ajax_spider": ajax_ok,
                 "ajax_enabled": settings.zap_enable_ajax_spider,
+                "ajax_note": getattr(self, "_ajax_note", ""),
+                "ajax_browsers": settings.zap_ajax_browsers,
+                "ajax_max_states": settings.zap_ajax_max_states,
                 "ascan_scanned": scanned,
                 "ascan_targets": len(ascan_targets),
                 "ascan_cap": settings.zap_ascan_max_targets,
@@ -318,6 +523,8 @@ class ZapScanner(BaseScanner):
                 "ascan_skipped": ascan_skipped,
                 "openapi_doc": (seed_info or {}).get("openapi_doc"),
                 "openapi_urls_added": (seed_info or {}).get("openapi_urls_added", 0),
+                "openapi_note": (seed_info or {}).get("openapi_note") or "",
+                "target_selection": getattr(self, "_target_stats", {}),
             }
             data["_spider_coverage"] = coverage
             (self.workdir / "zap-alerts.json").write_text(json.dumps(data, indent=2))
@@ -326,6 +533,8 @@ class ZapScanner(BaseScanner):
             # to inflate the info count and pollute the dashboard.
             self.coverage = coverage
             findings = self._parse(data.get("alerts", []))
+            # _parse counts socket.io exclusions; record after the fact.
+            self.coverage["socketio_dropped"] = getattr(self, "socketio_dropped", 0)
             return findings
         finally:
             # Session hygiene: auth rules must not survive into later scans.
@@ -502,6 +711,37 @@ class ZapScanner(BaseScanner):
                 pass
         return added
 
+    def _purge_stale_auth_rules(self, client: httpx.Client, base: str, api_key: str) -> int:
+        """Remove leftover octoscan-auth-* replacer rules from dead runs.
+
+        _clear_auth_rules runs in a finally block, so a killed worker
+        (SIGKILL, pkill, restart mid-scan) leaks an ENABLED rule carrying
+        a stale session — the next scan for the same host then sends two
+        Authorization headers (stale + fresh) with undefined winner.
+        Purging at startup self-heals. Returns rules removed.
+        """
+        try:
+            r = client.get(f"{base}/JSON/replacer/view/rules/", params={"apikey": api_key})
+            r.raise_for_status()
+            rules = r.json().get("rules") or []
+        except Exception:
+            return 0
+        removed = 0
+        for rule in rules:
+            desc = str(rule.get("description") or "")
+            if desc.startswith("octoscan-auth-"):
+                try:
+                    client.get(
+                        f"{base}/JSON/replacer/action/removeRule/",
+                        params={"apikey": api_key, "description": desc},
+                    )
+                    removed += 1
+                except Exception:
+                    pass
+        if removed:
+            self._activity(f"purged {removed} stale auth rule(s) from dead runs")
+        return removed
+
     def _clear_auth_rules(self, client: httpx.Client, base: str, api_key: str, rules: list[str]) -> None:
         """Remove replacer rules added by _apply_auth_rules. Best-effort."""
         for desc in rules:
@@ -587,10 +827,14 @@ class ZapScanner(BaseScanner):
 
         All cheap (plain HTTP via ZAP proxy, no firefox). Never raises.
         Returns what was achieved so run() can record honest coverage:
-        {"openapi_doc": url|None, "openapi_urls_added": n}.
-        NOTE: targets that only serve the Swagger *UI* (HTML shell, no raw
-        JSON doc — Juice Shop included) yield zero importable routes; the
-        seed + spider URLs remain the ascan surface in that case.
+        {"openapi_doc": url|None, "openapi_urls_added": n, "openapi_note": str}.
+        CORRECTION (Oct 2026): a swagger.json URL showing up in ZAP's
+        evidence text does NOT prove a spec file is served — Juice Shop's
+        /api-docs/swagger.json returns the Swagger *UI* HTML shell, so
+        importUrl answers OK while the Sites tree grows by zero. The real
+        spec is embedded in /api-docs/swagger-ui-init.js (swaggerDoc
+        object); parse its paths and seed those instead. Verified import
+        = Result OK *and* the Sites tree actually grew.
         """
         root = target.rstrip("/")
         for path in SEED_PATHS:
@@ -604,7 +848,7 @@ class ZapScanner(BaseScanner):
         # OpenAPI import populates /rest/* routes without a browser.
         # Verified import = Result OK *and* the Sites tree actually grew
         # (ZAP answers OK even when the "document" is an HTML shell).
-        info: dict = {"openapi_doc": None, "openapi_urls_added": 0}
+        info: dict = {"openapi_doc": None, "openapi_urls_added": 0, "openapi_note": ""}
         try:
             before = len(client.get(
                 f"{base}/JSON/core/view/urls/",
@@ -631,114 +875,338 @@ class ZapScanner(BaseScanner):
                     ).json().get("urls") or [])
                 except Exception:
                     after = before
-                info = {"openapi_doc": f"{root}{doc}", "openapi_urls_added": max(0, after - before) if before >= 0 else 0}
-                break
+                added = max(0, after - before) if before >= 0 else 0
+                if added > 0:
+                    info = {"openapi_doc": f"{root}{doc}", "openapi_urls_added": added, "openapi_note": ""}
+                    break
+                # Import "succeeded" but the tree did not grow: the URL
+                # served the Swagger UI shell, not a spec. Keep looking.
+                info["openapi_note"] = f"{doc} served UI shell, not a spec (tree unchanged)"
+            except Exception:
+                pass
+        # Fallback: Juice Shop embeds its spec in
+        # /api-docs/swagger-ui-init.js (a JS file defining a swaggerDoc
+        # object). Parse its "paths" keys and seed each route so ascan
+        # covers real API surface even when no raw spec file exists.
+        if info["openapi_urls_added"] == 0:
+            try:
+                js = httpx.get(f"{root}/api-docs/swagger-ui-init.js", follow_redirects=True, timeout=15.0)
+                if js.status_code == 200 and "swaggerDoc" in js.text:
+                    paths = _swagger_ui_init_paths(js.text)
+                    added = 0
+                    for p in paths[:30]:
+                        try:
+                            client.get(
+                                f"{base}/JSON/core/action/accessUrl/",
+                                params={"apikey": api_key, "url": f"{root}{p}", "followRedirects": "true"},
+                            )
+                            added += 1
+                        except Exception:
+                            pass
+                    if paths:
+                        info = {
+                            "openapi_doc": f"{root}/api-docs/swagger-ui-init.js",
+                            "openapi_urls_added": added,
+                            "openapi_note": f"parsed {len(paths)} embedded spec path(s); /rest/* not in spec",
+                        }
             except Exception:
                 pass
         return info
 
     def _select_ascan_targets(self, client: httpx.Client, base: str, api_key: str, target: str, seed: str) -> list[str]:
-        """Pick capped active-scan targets: injectable URLs first.
+        """Pick active-scan targets deliberately: injectable URLs first.
 
-        Priority: URLs with a query string AND a /rest/ or /api/ path rank
-        first (the real SQLi sink is /rest/products/search?q=); bare API
-        routes second; other parameterized URLs third. Bare SPA routes
-        (/#/..., /search?q=) rank last. Dropped outright: URLs containing
-        '#' (client-side SPA routes serving index.html), static assets
-        (.js/.css/images/fonts/.map — never yield ascan vulns), /assets/*
-        trees and /socket.io/* (polling endpoints that burn budget and
-        flap the target).
+        Priority: /rest/* or /api/* with a query string first (the real
+        SQLi sink is /rest/products/search?q=), bare API routes second,
+        other parameterized URLs third, seed fourth, everything else
+        last. Dropped outright: '#' SPA routes, static assets, /assets/*
+        trees, /socket.io/* polling endpoints, and paths that serve the
+        SPA shell (verified by body comparison — they can never yield
+        ascan vulns, only burn budget).
+        The list is budget-driven: ordered best-first up to a safety
+        ceiling, and the ascan loop stops on the shared time budget, not
+        on the count. Selection stats land in coverage.
         """
+        stats = {"tree_urls": 0, "dropped_static": 0, "dropped_shell": 0,
+                 "dropped_socketio": 0, "kept": 0}
         try:
             r = client.get(f"{base}/JSON/core/view/urls/", params={"apikey": api_key, "baseurl": target})
             r.raise_for_status()
             urls = [u for u in (r.json().get("urls") or []) if isinstance(u, str) and u]
         except Exception:
+            self._target_stats = stats
             return [seed]
+        stats["tree_urls"] = len(urls)
 
         def _path(u: str) -> str:
             return u.lower().split("?", 1)[0]
 
-        dynamic = [
-            u for u in urls
-            if "#" not in u
-            and not _path(u).endswith(STATIC_EXTENSIONS)
-            and "/assets/" not in _path(u)
-            and "/socket.io/" not in _path(u)
-        ]
+        dynamic = []
+        for u in urls:
+            if "#" in u:
+                continue
+            low_path = _path(u)
+            if low_path.endswith(STATIC_EXTENSIONS):
+                stats["dropped_static"] += 1
+                continue
+            if "/assets/" in low_path:
+                stats["dropped_static"] += 1
+                continue
+            if any(m in u.lower() for m in SOCKETIO_MARKERS):
+                stats["dropped_socketio"] += 1
+                continue
+            if low_path.rsplit("/", 1)[-1].split("?", 1)[0] in JUNK_ASCAN_BASENAMES:
+                stats["dropped_static"] += 1
+                continue
+            dynamic.append(u)
 
-        def _rank(u: str) -> int:
-            low = u.lower()
-            has_q = "?" in u
-            restful = "/rest/" in low or "/api/" in low
-            if has_q and restful:
-                return 0
-            if restful:
-                return 1
-            if has_q:
-                return 2
-            if u == seed:
-                return 3
-            return 4
+        # Drop SPA-shell paths: a different URL serving byte-identical
+        # content to / is the app shell, never a distinct attack surface.
+        # Parameterized and /rest/* URLs are always kept (never shell);
+        # everything else is verified, bounded and fail-open.
+        dynamic = self._drop_shell_paths(dynamic)
+        stats["dropped_shell"] = self._shell_dropped
 
-        dynamic_sorted = sorted(set(dynamic), key=_rank)
-        # Seed first, then tree order, deduped, capped.
-        ordered: list[str] = []
+        # Value order, not arrival order: injectable API routes first so
+        # the time budget (not the ceiling) decides depth. Ties keep tree
+        # order via a stable sort.
+        dynamic_sorted = sorted(set(dynamic), key=_target_value, reverse=True)
+        # Seed first, then ranked order, deduped. The safety ceiling binds
+        # the list, but the shared TIME budget decides how many actually
+        # get scanned — the cut (eligible minus kept) is recorded below so
+        # it stays visible instead of silent.
+        ranked: list[str] = []
         for u in [seed, *dynamic_sorted]:
-            if u not in ordered:
-                ordered.append(u)
-            if len(ordered) >= max(1, settings.zap_ascan_max_targets):
-                break
+            if u not in ranked:
+                ranked.append(u)
+        ceiling = max(1, settings.zap_ascan_max_targets)
+        ordered = ranked[:ceiling]
+        stats["kept"] = len(ordered)
+        stats["eligible"] = len(ranked)
+        stats["cut"] = len(ranked) - len(ordered)
+        stats["ranked_targets"] = ordered
+        stats["cut_sample"] = ranked[ceiling:ceiling + 5]
+        self._target_stats = stats
+        self._activity(
+            f"ascan targets: {len(ordered)} kept from {stats['tree_urls']} tree URLs "
+            f"(static {stats['dropped_static']}, shell {stats['dropped_shell']}, "
+            f"socket.io {stats['dropped_socketio']})"
+        )
         return ordered or [seed]
 
-    def _run_ajax_spider(self, client: httpx.Client, base: str, api_key: str, target: str) -> bool:
-        """Run ZAP's AJAX spider (browser-driven, for JS-heavy SPAs).
+    _shell_dropped = 0
 
-        OFF by default (ZAP_ENABLE_AJAX_SPIDER=false): each run spawns
-        firefox-esr processes that pile up (~18 seen on Juice Shop) and
-        OOM the box. Enable only with RAM headroom. Always time-boxed and
-        never fails the whole scan.
+    def _drop_shell_paths(self, urls: list[str]) -> list[str]:
+        """Drop bare pages serving the SPA shell. Bounded + fail-open.
+
+        Only candidates WITHOUT a query string and outside /rest/* are
+        verified (at most 20 GETs, 4 s each); parameterized and REST URLs
+        are injectable surface by construction and always kept. Network
+        errors keep the URL.
+        """
+        self._shell_dropped = 0
+        try:
+            import httpx as _httpx
+
+            root = _httpx.get(self.target_url, follow_redirects=True, timeout=10.0)
+            root_body = root.content if root.status_code == 200 else None
+        except Exception:
+            return urls
+        if root_body is None:
+            return urls
+        kept: list[str] = []
+        checked = 0
+        for u in urls:
+            low = u.lower()
+            verify = "?" not in u and "/rest/" not in low
+            if verify and checked < 20:
+                checked += 1
+                try:
+                    import httpx as _httpx
+
+                    r = _httpx.get(u, follow_redirects=True, timeout=4.0)
+                    if r.status_code == 200 and r.content == root_body:
+                        self._shell_dropped += 1
+                        continue
+                except Exception:
+                    pass  # fail-open: keep on any network error
+            kept.append(u)
+        return kept
+
+    def _run_ajax_spider(self, client: httpx.Client, base: str, api_key: str, target: str) -> bool:
+        """Run ZAP's AJAX spider (browser-driven, for JS-heavy SPAs) inside a cage.
+
+        Bounds (all env-tunable, restored afterwards): 1 browser, depth 5,
+        200 crawl states, 5-min ZAP-side cap + our own poll deadline. Skips
+        when free RAM is below zap_ajax_min_free_mb. Afterwards the spider
+        is stopped and any firefox processes it spawned are reaped by PID —
+        pre-existing PIDs (your desktop browser) are never touched.
+        Never fails the whole scan: False = proceed with classic-spider URLs.
         """
         if not settings.zap_enable_ajax_spider:
             return False
-        try:
-            r = client.get(
-                f"{base}/JSON/ajaxSpider/action/scan/",
-                params={"apikey": api_key, "url": target},
+        free_mb = _available_mb()
+        if free_mb is not None and free_mb < settings.zap_ajax_min_free_mb:
+            self._ajax_note = (
+                f"skipped: {free_mb} MB free < {settings.zap_ajax_min_free_mb} MB minimum"
             )
-            r.raise_for_status()
+            self._activity(f"ajax spider {self._ajax_note}")
+            return False
+        self._ajax_note = ""
+        try:
+            before_urls = self._tree_size(client, base, api_key, target)
+        except Exception:
+            before_urls = -1
+        prev = self._cage_ajax(client, base, api_key)
+        browsers_before = _firefox_pids()
+        completed = False
+        try:
+            try:
+                r = client.get(
+                    f"{base}/JSON/ajaxSpider/action/scan/",
+                    params={"apikey": api_key, "url": target, "subtreeOnly": "true"},
+                )
+                r.raise_for_status()
+            except Exception:
+                # Older daemon or bad param: retry bare before giving up.
+                try:
+                    r = client.get(
+                        f"{base}/JSON/ajaxSpider/action/scan/",
+                        params={"apikey": api_key, "url": target},
+                    )
+                    r.raise_for_status()
+                except Exception:
+                    return False
             if "does not exist" in r.text:
                 return False
-        except Exception:
-            return False
-        # Cap AJAX crawl so it can't eat the whole scan budget.
-        deadline = time.time() + max(30, min(settings.zap_ajax_timeout_seconds, settings.scan_timeout_seconds // 3))
-        status_url = f"{base}/JSON/ajaxSpider/view/status/"
+            # Cap AJAX crawl so it can't eat the whole scan budget.
+            deadline = time.time() + max(
+                30, min(settings.zap_ajax_timeout_seconds, settings.scan_timeout_seconds // 3)
+            )
+            status_url = f"{base}/JSON/ajaxSpider/view/status/"
+            try:
+                while time.time() < deadline:
+                    self._check_stop("zap ajax-spider")
+                    s = client.get(status_url, params={"apikey": api_key})
+                    s.raise_for_status()
+                    if str(s.json().get("status", "")).lower() == "stopped":
+                        completed = True
+                        break
+                    time.sleep(5)
+            except ScanStopped:
+                raise
+            except Exception:
+                completed = False
+        finally:
+            try:
+                client.get(f"{base}/JSON/ajaxSpider/action/stop/", params={"apikey": api_key})
+            except Exception:
+                pass
+            self._uncage_ajax(client, base, api_key, prev)
+            _reap_firefox(_firefox_pids() - browsers_before)
         try:
-            while time.time() < deadline:
-                self._check_stop("zap ajax-spider")
-                s = client.get(status_url, params={"apikey": api_key})
-                s.raise_for_status()
-                if str(s.json().get("status", "")).lower() == "stopped":
-                    return True
-                time.sleep(3)
+            states = self._ajax_states(client, base, api_key)
+            after_urls = self._tree_size(client, base, api_key, target)
         except Exception:
-            return False
-        # Timed out: stop it if we can, then proceed with what was found.
+            states, after_urls = -1, -1
+        grown = (after_urls - before_urls) if (before_urls >= 0 and after_urls >= 0) else -1
+        self._ajax_note = (
+            f"{'completed' if completed else 'time-boxed'}: "
+            f"{states} states, {grown if grown >= 0 else '?'} new URLs "
+            f"({settings.zap_ajax_browsers} browser, depth {settings.zap_ajax_max_depth}, "
+            f"states cap {settings.zap_ajax_max_states})"
+        )
+        self._activity(f"ajax spider {self._ajax_note}")
+        return True
+
+    def _tree_size(self, client: httpx.Client, base: str, api_key: str, target: str) -> int:
+        r = client.get(f"{base}/JSON/core/view/urls/", params={"apikey": api_key, "baseurl": target})
+        r.raise_for_status()
+        return len(r.json().get("urls") or [])
+
+    def _ajax_states(self, client: httpx.Client, base: str, api_key: str) -> int:
         try:
-            client.get(f"{base}/JSON/ajaxSpider/action/stop/", params={"apikey": api_key})
+            r = client.get(f"{base}/JSON/ajaxSpider/view/numberOfResults/", params={"apikey": api_key})
+            r.raise_for_status()
+            return int(r.json().get("numberOfResults", -1))
         except Exception:
-            pass
-        return False
+            return -1
+
+    def _cage_ajax(self, client: httpx.Client, base: str, api_key: str) -> dict[str, int]:
+        """Save daemon AJAX options, apply ours. Returns previous values."""
+        prev: dict[str, int] = {}
+        want = {
+            "NumberOfBrowsers": settings.zap_ajax_browsers,
+            "MaxCrawlDepth": settings.zap_ajax_max_depth,
+            "MaxCrawlStates": settings.zap_ajax_max_states,
+            "MaxDuration": settings.zap_ajax_max_minutes,
+        }
+        getters = {
+            "NumberOfBrowsers": "optionNumberOfBrowsers",
+            "MaxCrawlDepth": "optionMaxCrawlDepth",
+            "MaxCrawlStates": "optionMaxCrawlStates",
+            "MaxDuration": "optionMaxDuration",
+        }
+        setters = {
+            "NumberOfBrowsers": "setOptionNumberOfBrowsers",
+            "MaxCrawlDepth": "setOptionMaxCrawlDepth",
+            "MaxCrawlStates": "setOptionMaxCrawlStates",
+            "MaxDuration": "setOptionMaxDuration",
+        }
+        for key, view in getters.items():
+            try:
+                r = client.get(f"{base}/JSON/ajaxSpider/view/{view}/", params={"apikey": api_key})
+                prev[key] = int(r.json().get(key, 0))
+            except Exception:
+                pass
+        for key, action in setters.items():
+            try:
+                client.get(
+                    f"{base}/JSON/ajaxSpider/action/{action}/",
+                    params={"apikey": api_key, "Integer": want[key]},
+                )
+            except Exception:
+                pass
+        self._activity(
+            f"ajax cage: {want['NumberOfBrowsers']} browser, depth {want['MaxCrawlDepth']}, "
+            f"{want['MaxCrawlStates']} states, {want['MaxDuration']} min (was {prev})"
+        )
+        return prev
+
+    def _uncage_ajax(self, client: httpx.Client, base: str, api_key: str, prev: dict[str, int]) -> None:
+        """Restore daemon AJAX options saved by _cage_ajax. Best-effort."""
+        setters = {
+            "NumberOfBrowsers": "setOptionNumberOfBrowsers",
+            "MaxCrawlDepth": "setOptionMaxCrawlDepth",
+            "MaxCrawlStates": "setOptionMaxCrawlStates",
+            "MaxDuration": "setOptionMaxDuration",
+        }
+        for key, val in prev.items():
+            try:
+                client.get(
+                    f"{base}/JSON/ajaxSpider/action/{setters[key]}/",
+                    params={"apikey": api_key, "Integer": val},
+                )
+            except Exception:
+                pass
 
     def _parse(self, alerts: list[dict]) -> list[Finding]:
         findings: list[Finding] = []
         seen: set[tuple[str, str, str, str]] = set()
+        socketio_dropped = 0
+        self.socketio_dropped = 0
         for alert in alerts:
             title = alert.get("alert") or alert.get("name") or "ZAP alert"
             location = alert.get("url") or self.target_url
             norm_url = _normalize_url(location)
             if any(s in norm_url for s in NOISY_PATH_SUBSTRINGS):
+                continue
+            # socket.io polling endpoints: transport IDs trip passive
+            # rules (session-in-URL, missing-header FPs). Excluded from
+            # scanning AND reporting; counted in coverage for honesty.
+            if any(m in norm_url for m in SOCKETIO_MARKERS):
+                socketio_dropped += 1
+                self.socketio_dropped = socketio_dropped
                 continue
             # Drop low-value static-asset noise (e.g. User Agent Fuzzer on /assets/*.js)
             # but keep anything with meaningful risk.
@@ -753,7 +1221,17 @@ class ZapScanner(BaseScanner):
             seen.add(key)
             risk = risk_raw
             pluginid = str(alert.get("pluginId") or alert.get("pluginid") or "")
+            param = str(alert.get("param") or "")
             evidence, recommendation = _evidence_and_fix(alert)
+            # CWE goes in `cwe` (list), OWASP in `owasp` (list); `cve`
+            # stays None — ZAP reports weaknesses, not CVE ids, and the
+            # old code filing "CWE-89" into `cve` broke the dashboard's
+            # CVE column (fixed Oct 2026 by merging scan-quality-v2).
+            # ZAP uses cweid -1/0/"0" for "no CWE" — never emit CWE--1/CWE-0.
+            cwe_id = str(alert.get("cweid") or "").strip()
+            cwe = [clean_cwe(cwe_id)] if clean_cwe(cwe_id) else []
+            cwe = [c for c in cwe if c]
+            owasp = _owasp_for(pluginid, cwe_id)
             findings.append(
                 Finding(
                     scanner=self.name,
@@ -763,12 +1241,14 @@ class ZapScanner(BaseScanner):
                     evidence=evidence,
                     location=norm_url,
                     recommendation=recommendation,
-                    # ZAP uses cweid -1/0/"0" for "no CWE" (arrives as str) —
-                    # never emit CWE--1/CWE-0 (recovered from b730b65).
-                    cve=clean_cwe(alert.get("cweid")),
+                    cwe=cwe,
+                    owasp=owasp,
+                    request=norm_url + (f" param={param}" if param else ""),
+                    response=(evidence or "")[:500],
                     raw={
                         "pluginid": pluginid,
                         "cweid": alert.get("cweid"),
+                        "finding_class": PLUGIN_CLASS.get(pluginid),
                         "param": alert.get("param"),
                         "attack": alert.get("attack"),
                         "risk": risk,

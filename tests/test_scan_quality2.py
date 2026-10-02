@@ -109,7 +109,9 @@ def test_zap_sqli_evidence_carries_payload_param_response(tmp_path):
     assert "payload=" in f.evidence
     assert "response=" in f.evidence
     assert "parameterized" in f.recommendation
-    assert f.cve == "CWE-89"
+    assert f.cwe == ["CWE-89"]
+    assert f.cve is None
+    assert f.owasp == ["A03:2021-Injection"]
     assert f.raw["attack"] == "'\""
 
 
@@ -146,9 +148,10 @@ def test_nikto_generic_catchall_demotes_unknown_stack(tmp_path):
         }])
     finally:
         _httpx.get = real_get
-    assert len(out) == 1
-    assert out[0].severity == Severity.info
-    assert "false positive" in out[0].description.lower()
+    # Proven catch-all: coverage note, not a finding row (only "ran clean" remains).
+    assert [f.title for f in out] == ["No Nikto findings"]
+    assert n.coverage["spa_catchall"]["count"] == 1
+    assert "/weird-admin-panel" in n.coverage["spa_catchall"]["paths"]
 
 
 def test_ascan_rank_api_params_first_drop_assets_socketio():

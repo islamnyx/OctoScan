@@ -14,9 +14,12 @@ class TestsslScanner(BaseScanner):
     def run(self) -> list[Finding]:
         if self.scheme != "https" and self.port != 443:
             # No TLS surface to test — a skipped check is not a finding.
-            # (Previously emitted an info Finding that polluted finding
-            # counts, radar and sunburst. Empty list keeps scanners_run
-            # accurate via the pipeline's run-recording.)
+            # Recorded in coverage (not-applicable) so the report shows
+            # WHY TLS was skipped instead of silently omitting it.
+            self.coverage = {
+                "status": "not-applicable",
+                "reason": f"plain {self.scheme.upper()} on port {self.port}: no TLS surface to test",
+            }
             return []
         out_json = self.workdir / "testssl.json"
         # testssl.sh refuses to write into a non-empty --jsonfile
@@ -109,7 +112,7 @@ class TestsslScanner(BaseScanner):
                         location=f"{self.host}:{self.port}",
                         recommendation="Harden TLS: disable weak protocols/ciphers and enable modern config.",
                         cve=item.get("cve"),
-                        raw=item,
+                        raw={**item, "finding_class": "tls-weakness"},
                     )
                 )
         if connect_failure and not findings:

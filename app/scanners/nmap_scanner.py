@@ -109,38 +109,24 @@ class NmapScanner(BaseScanner):
                 )
             )
         if not findings:
+            # No findings is not "nothing happened" — record WHY in
+            # coverage (not as info findings) so counts/radar stay clean
+            # while the report still explains the empty result.
             if skipped_self:
-                findings.append(
-                    Finding(
-                        scanner=self.name,
-                        title=f"Only self ports open ({', '.join(skipped_self)}) — skipped",
-                        severity=Severity.info,
-                        description="Nmap only found the scanner's own API/ZAP ports on loopback; they were excluded as scan infrastructure.",
-                        location=self.host,
-                        raw={"skipped_self_ports": skipped_self},
-                    )
-                )
+                self.coverage = {
+                    "status": "not-applicable",
+                    "reason": f"only self ports open ({', '.join(skipped_self)}) — skipped as scan infrastructure",
+                    "skipped_self_ports": skipped_self,
+                }
             elif skipped_target:
-                findings.append(
-                    Finding(
-                        scanner=self.name,
-                        title=f"Only the target's own port ({', '.join(skipped_target)}) open — expected",
-                        severity=Severity.info,
-                        description="Nmap found no open ports besides the scanned web target's own port, which is expected to be open.",
-                        location=self.host,
-                        raw={"skipped_target_ports": skipped_target},
-                    )
-                )
+                self.coverage = {
+                    "status": "not-applicable",
+                    "reason": f"only the target's own port ({', '.join(skipped_target)}) open — expected",
+                    "skipped_target_ports": skipped_target,
+                }
             else:
-                findings.append(
-                    Finding(
-                        scanner=self.name,
-                        title="No open ports in top 200",
-                        severity=Severity.info,
-                        description="Nmap did not report open ports in the top 200 TCP ports.",
-                        location=self.host,
-                    )
-                )
+                self.coverage = {"status": "clean", "reason": "no open ports in top 200"}
+            return []
         return findings
 
     def _is_self_port(self, portid: str) -> bool:

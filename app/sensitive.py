@@ -73,6 +73,111 @@ def _path(url: str) -> str:
         return ""
 
 
+def _listing_files(body: bytes) -> list[str]:
+    """File names linked from a directory-index page (href basenames)."""
+    try:
+        import re as _re
+
+        text = body.decode("utf-8", "ignore")
+        names: list[str] = []
+        for href in _re.findall(r'''href=["']([^"']+)["']''', text):
+            name = href.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+            if name and name not in (".", "..") and name not in names:
+                names.append(name)
+        return names[:50]
+    except Exception:
+        return []
+
+
+# Extensions/keywords that make a listed file sensitive on sight.
+SENSITIVE_EXTENSIONS = frozenset({
+    ".bak", ".old", ".orig", ".save", ".sql", ".dump", ".db", ".sqlite",
+    ".pem", ".key", ".p12", ".pfx", ".kdbx", ".env", ".md", ".log",
+    ".txt", ".yml", ".yaml", ".json", ".xml", ".cfg", ".conf", ".ini",
+    ".pyc", ".pyo", ".zip", ".tar", ".gz",
+})
+SENSITIVE_NAME_KEYWORDS = (
+    "passw", "passwd", "secret", "credential", "token", "private",
+    "backup", "shadow", "encrypt", "coupon", "incident", "suspicious",
+    "key", "config",
+)
+
+
+def _sensitive_names(files: list[str]) -> list[str]:
+    """Listed files that look sensitive by extension or name."""
+    hits: list[str] = []
+    for name in files:
+        lower = name.lower()
+        ext = "." + lower.rsplit(".", 1)[-1] if "." in lower else ""
+        if ext in SENSITIVE_EXTENSIONS or any(k in lower for k in SENSITIVE_NAME_KEYWORDS):
+            hits.append(name)
+    return hits
+
+
+def verify_listed_files(target_url: str, dir_url: str, files: list[str], auth: Auth = None,
+                        cap: int = 10) -> tuple[list[dict], list[dict]]:
+    """Fetch each sensitive-looking listed file; record status + size.
+
+    Returns (downloads, blocked): downloads have HTTP 200 with a body
+    that is NOT the site-root SPA shell; blocked keep their status. For
+    blocked files one null-byte variant (`<url>%00.md`) is tried and
+    recorded — bypass lead, never claimed without a 200.
+    Bounded: cap files × 2 GETs max. Fail-open (empty lists on error).
+    """
+    downloads: list[dict] = []
+    blocked: list[dict] = []
+    try:
+        from urllib.parse import urlparse as _up
+
+        p = _up(target_url)
+        root = f"{p.scheme}://{p.hostname}{(':' + str(p.port)) if p.port else ''}/"
+        root_body = _fetch_body(root, auth)
+    except Exception:
+        root_body = None
+    for name in files[:cap]:
+        url = dir_url.rstrip("/") + "/" + name
+        try:
+            status, body = _fetch_status_body(url, auth)
+            size = len(body) if body else 0
+            real = status == 200 and body is not None and body != root_body and size > 0
+            entry: dict = {"name": name, "url": url, "status": status, "bytes": size}
+            if real:
+                downloads.append(entry)
+                continue
+            # One bypass probe per blocked file; record, never claim.
+            try:
+                bstatus, bbody = _fetch_status_body(url + "%00.md", auth)
+                entry["bypass_status"] = bstatus
+                entry["bypass_bytes"] = len(bbody) if bbody else 0
+                if bstatus == 200 and bbody and bbody != root_body:
+                    entry["status"] = bstatus
+                    entry["bytes"] = len(bbody)
+                    entry["bypass"] = "null-byte variant downloaded"
+                    downloads.append(entry)
+                    continue
+            except Exception:
+                pass
+            blocked.append(entry)
+        except Exception:
+            continue
+    return downloads, blocked
+
+
+def _looks_dir_like(url: str) -> bool:
+    """True for directory-shaped URLs: trailing slash or extensionless.
+
+    ZAP strips trailing slashes when normalizing, so /ftp/ arrives as
+    /ftp — an endswith('/') check alone misses every real listing.
+    Basenames with a dot (.js, .png, /login) are files/routes, not dirs.
+    """
+    path = _path(url)
+    if not path or path == "/":
+        return False
+    if path.endswith("/"):
+        return True
+    return "." not in path.rsplit("/", 1)[-1]
+
+
 def _classify(url: str) -> tuple[Severity, str, str] | None:
     path = _path(url)
     if not path or path == "/":
@@ -179,17 +284,36 @@ def _is_ds_store(body: bytes) -> bool:
 
 def _is_listing(body: bytes) -> bool:
     """True when the body looks like a server-generated directory index
-    (Apache/NGINX autoindex, IIS listing) rather than app content."""
-    if not body or len(body) > 200000:
+    (Apache/NGINX autoindex, Express serve-index) or an SPA view
+    rendering one (Juice Shop /ftp/, whose title is literally
+    'listing directory /ftp/') — rather than app content."""
+    if not body or len(body) > 500000:
         return False
-    text = body.decode("utf-8", "ignore")[:8000].lower()
-    if "<html" not in text and "<title" not in text:
+    try:
+        text = body.decode("utf-8", "ignore").lower()
+    except Exception:
         return False
-    markers = (
-        "index of /", "directory listing for /", "directory of /",
-        "parent directory", "[to parent directory]",
-    )
-    return any(m in text for m in markers)
+    if "index of /" in text and ("<a href" in text or "<tr>" in text):
+        return True
+    head = body[:4000].lower()
+    if any(m in head for m in LISTING_MARKERS):
+        return True
+    title = re.search(r"<title>(.*?)</title>", text, re.S)
+    if title and "listing director" in title.group(1) and text.count("href") >= 3:
+        return True
+    return False
+
+
+# Auto-index pages share unmistakable markers across servers
+# (Apache/Nginx/lighttpd/Express `serve-index`).
+LISTING_MARKERS = (
+    b"<title>index of /",
+    b"<h1>index of /",
+    b"directory listing for /",
+    b"<title>directory listing",
+    b"[parent directory]",
+    b"[to parent directory]",
+)
 
 
 def _is_server_status(body: bytes) -> bool:
@@ -259,7 +383,20 @@ WELLKNOWN_PROBES: list[tuple[str, str, Severity, object, str]] = [
      "web.config routinely carries connection strings and secrets. Never serve it from the web root."),
     ("/composer.json", "Exposed composer.json", Severity.low, _is_composer_json,
      "Dependency manifests disclose exact package versions for targeted CVE exploitation. Remove from the web root."),
+    ("/ftp/", "Exposed directory listing (/ftp/)", Severity.medium, _is_listing,
+     "Public upload/download directories frequently contain backups, "
+     "incident artifacts, and files with sensitive names."),
 ]
+
+
+def _probe_class(label: str) -> str:
+    """Finding class for the central OWASP table (app/owasp.py)."""
+    low = (label or "").lower()
+    if "directory listing" in low:
+        return "directory-listing"
+    if "server-status" in low or "server-info" in low:
+        return "server-status"
+    return "sensitive-file"
 
 
 def probe_wellknown(target_url: str, auth: Auth = None) -> list[Finding]:
@@ -300,18 +437,43 @@ def probe_wellknown(target_url: str, auth: Auth = None) -> list[Finding]:
                     evidence = ev.hex()[:120]
             except Exception:
                 evidence = ""
+            is_listing = _probe_class(label) == "directory-listing"
+            files = _listing_files(body) if is_listing else []
+            sensitive_hits = _sensitive_names(files) if is_listing else []
+            downloads, blocked = ([], [])
+            if sensitive_hits:
+                downloads, blocked = verify_listed_files(target_url, url, sensitive_hits, auth)
+            probe_sev = Severity.high if downloads else severity
+            probe_desc_extra = ""
+            if is_listing and files:
+                probe_desc_extra = f" Listed files ({len(files)}): {', '.join(files[:20])}."
+                if downloads:
+                    probe_desc_extra += " HIGH: downloads verified: " + ", ".join(
+                        f"{d['name']} (HTTP {d['status']}, {d['bytes']} B)" for d in downloads[:10]) + "."
+                elif sensitive_hits:
+                    probe_desc_extra += " Sensitive names present but none download; kept below high."
             out.append(
                 Finding(
                     scanner="sensitive-files",
                     title=f"{label} at {path}",
-                    severity=severity,
+                    severity=probe_sev,
                     description=f"{why} Verified live at {url} (HTTP 200, content signature matched). "
-                    "Remove it from the public tree and rotate any exposed credentials.",
-                    evidence=evidence[:200],
+                    "Remove it from the public tree and rotate any exposed credentials."
+                    + probe_desc_extra,
+                    evidence=(evidence[:200] + (
+                        f" files={','.join(_listing_files(body)[:10])}"
+                        if is_listing else ""
+                    ))[:300],
                     location=url,
                     recommendation="Deny dotfiles in server config (e.g. `location ~ /\\. { deny all; }`), "
-                    "remove the file from the web root, and audit access logs for downloads.",
-                    raw={"url": url, "pattern": label, "probed": True, "catch_all_verified": False},
+                    "remove the file from the public web root, and audit access logs for downloads.",
+                    raw={"url": url, "pattern": label, "probed": True, "catch_all_verified": False,
+                         "finding_class": _probe_class(label),
+                         "directory_listing": is_listing,
+                         "listed_files": files if is_listing else [],
+                         "sensitive_files": sensitive_hits if is_listing else [],
+                         "file_checks": downloads + blocked,
+                         "live_verified": True},
                 )
             )
         except Exception:
@@ -319,10 +481,34 @@ def probe_wellknown(target_url: str, auth: Auth = None) -> list[Finding]:
     return out
 
 
+def dedupe_listings(findings: list[Finding]) -> list[Finding]:
+    """Collapse duplicate directory-listing rows (/ftp vs /ftp/).
+
+    flag_sensitive_files (discovered URLs) and probe_wellknown (direct
+    probes) can each report the same directory with different trailing
+    slashes. Keep the first, record the merge.
+    """
+    seen: set[str] = set()
+    out: list[Finding] = []
+    for f in findings:
+        if f.scanner == "sensitive-files" and (f.raw or {}).get("directory_listing"):
+            key = _path(f.location or "").rstrip("/") or "/"
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(f)
+    return out
+
+
 def flag_sensitive_files(
     target_url: str, findings: list[Finding], auth: Auth = None
-) -> list[Finding]:
-    """Build one finding per exposed sensitive file found in discovered URLs."""
+) -> tuple[list[Finding], dict]:
+    """Build one finding per exposed sensitive file found in discovered URLs.
+
+    Returns (findings, meta): SPA-shell catch-all matches are scan
+    metadata (meta["catchall_skipped"]), not findings — same rule as
+    nmap/testssl skips.
+    """
     try:
         target_host = (urlparse(target_url).hostname or "").lower()
     except Exception:
@@ -350,6 +536,8 @@ def flag_sensitive_files(
     out: list[Finding] = []
     unverifiable: list[str] = []
     catchall_skipped: list[str] = []
+    emitted_listings: set[str] = set()
+    meta: dict = {}
     # SPA catch-all check (same technique as NiktoScanner._is_spa_catchall):
     # servers like Juice Shop answer unknown paths with HTTP 200 + index.html,
     # so a patterned URL alone proves nothing. Byte-compare against the root;
@@ -362,34 +550,77 @@ def flag_sensitive_files(
         if classified is None:
             # Unclassified but directory-shaped: a browsable index is a
             # finding in its own right (e.g. Juice Shop /ftp/ advertised
-            # by robots.txt). 200 + index markers + not the app shell.
-            if _path(url).endswith("/"):
+            # by robots.txt — ZAP normalizes it to /ftp, no trailing
+            # slash). 200 + index markers + not the app shell. One URL,
+            # one finding: /ftp and /ftp/ are the same directory.
+            if _looks_dir_like(url):
+                norm_path = _path(url).rstrip("/") or "/"
+                if norm_path in emitted_listings:
+                    continue
                 if not root_fetched:
                     root_body = _fetch_body(target_url, auth)
                     root_fetched = True
                 status, body = _fetch_status_body(url, auth)
                 if (status == 200 and body and _is_listing(body)
                         and body != root_body):
+                    emitted_listings.add(norm_path)
                     discoverers = sorted(seen[url])
+                    files = _listing_files(body)
+                    sensitive_hits = _sensitive_names(files)
+                    # Verify before calling it high: file names alone are
+                    # not exposure. Downloads keep HIGH; pure-403 listings
+                    # stay medium with bypass leads noted.
+                    downloads, blocked = ([], [])
+                    if sensitive_hits:
+                        downloads, blocked = verify_listed_files(target_url, url, sensitive_hits, auth)
+                    severity = Severity.high if downloads else Severity.medium
+                    desc_extra = ""
+                    if files:
+                        desc_extra = f" Listed files ({len(files)}): {', '.join(files[:20])}."
+                        if len(files) > 20:
+                            desc_extra += f" (+{len(files) - 20} more)"
+                    if downloads:
+                        desc_extra += (
+                            f" HIGH: {len(downloads)} file(s) actually download: "
+                            + ", ".join(f"{d['name']} (HTTP {d['status']}, {d['bytes']} B)" for d in downloads[:10])
+                            + "."
+                        )
+                    elif sensitive_hits:
+                        blocked_txt = ", ".join(
+                            "%s HTTP %s" % (b["name"], b["status"]) for b in blocked[:10]
+                        )
+                        desc_extra += (
+                            " Sensitive names present but none download "
+                            f"({blocked_txt}); kept at medium. Null-byte bypass "
+                            "variants tried per file, none fetched."
+                        )
                     out.append(
                         Finding(
                             scanner="sensitive-files",
                             title=f"Exposed directory listing: {_path(url)}",
-                            severity=Severity.medium,
+                            severity=severity,
                             description=(
                                 "The server renders a browsable directory index at "
                                 f"{url} (seen by: {', '.join(discoverers)}), exposing file "
                                 "names and structure. Disable auto-indexing or restrict access."
+                                + desc_extra
                             ),
-                            evidence=f"GET {url} -> HTTP 200 directory index",
+                            evidence=f"GET {url} -> HTTP 200 directory index ({len(files)} files)"
+                            + (f"; downloads: {', '.join(d['name'] for d in downloads[:10])}" if downloads else ""),
                             location=url,
                             recommendation="Disable directory auto-indexing (e.g. `autoindex off`, "
-                            "`Options -Indexes`), or require authentication for the directory.",
+                            "`Options -Indexes`), or require authentication for the directory."
+                            + (" Fetch and audit every downloaded file above; rotate exposed credentials." if downloads else ""),
                             raw={
                                 "url": url,
                                 "discovered_by": discoverers,
                                 "directory_listing": True,
                                 "catch_all_verified": False,
+                                "finding_class": "directory-listing",
+                                "listed_files": files,
+                                "sensitive_files": sensitive_hits,
+                                "file_checks": downloads + blocked,
+                                "live_verified": True,
                             },
                         )
                     )
@@ -444,31 +675,25 @@ def flag_sensitive_files(
                 "Confirm by fetching the URL, then remove it from the public tree and rotate any exposed credentials.",
                 evidence=url,
                 location=url,
-                recommendation="Remove the file from the public web root (or deny by server config), audit access logs for downloads, and rotate any credentials it may have contained.",
-                raw={
-                    "url": url,
-                    "pattern": label,
-                    "discovered_by": discoverers,
-                    "catch_all_verified": False,
-                },
+                    recommendation="Remove the file from the public web root (or deny by server config), audit access logs for downloads, and rotate any credentials it may have contained.",
+                    raw={
+                        "url": url,
+                        "pattern": label,
+                        "discovered_by": discoverers,
+                        "catch_all_verified": False,
+                        "finding_class": "sensitive-file",
+                        "live_verified": True,
+                    },
+                )
             )
-        )
     if catchall_skipped:
-        out.append(
-            Finding(
-                scanner="sensitive-files",
-                title=f"{len(catchall_skipped)} sensitive-named URL(s) return the app shell (SPA catch-all, not leaked files)",
-                severity=Severity.info,
-                description=(
-                    "These URLs matched sensitive-file patterns but return content "
-                    "byte-identical to /. The server serves its SPA shell for unknown "
-                    "paths, so no such file was actually fingerprinted: "
-                    + ", ".join(sorted(catchall_skipped))
-                ),
-                evidence="GET " + ", ".join(sorted(catchall_skipped)),
-                location=target_url,
-                recommendation="No action needed if bodies match /. Spot-check one path by diffing against / before acting.",
-                raw={"catchall_urls": sorted(catchall_skipped)},
-            )
-        )
-    return out
+        meta = {
+            "status": "not-applicable",
+            "reason": (
+                f"{len(catchall_skipped)} sensitive-named URL(s) return content byte-identical "
+                "to / (SPA shell served for unknown paths, not leaked files)"
+            ),
+            "catchall_urls": sorted(catchall_skipped),
+            "count": len(catchall_skipped),
+        }
+    return out, meta

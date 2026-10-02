@@ -90,7 +90,14 @@ def create_scan(req: ScanRequest, request: Request, api_key: str = Depends(requi
     if running >= 3:
         raise HTTPException(429, "too many concurrent scans (max 3), retry later")
     target = validate_target_url(str(req.target_url), settings.allow_private_targets)
-    job = ScanJob(target_url=target, requested_scanners=req.scanners or [], auth=req.auth)
+    # Empty picker = run everything: persist the effective list so the
+    # record shows what actually ran (sensitive-files included) instead
+    # of an ambiguous []. Old jobs with [] keep the dynamic meaning.
+    from app.models import SCHEMA_VERSION, WEB_SCANNER_CHOICES
+
+    requested = req.scanners if req.scanners else sorted(WEB_SCANNER_CHOICES)
+    job = ScanJob(target_url=target, requested_scanners=requested, auth=req.auth,
+                  schema_version=SCHEMA_VERSION)
     save_job(job)
     Thread(target=run_scan, args=(job.id,), daemon=True).start()
     return job
@@ -116,8 +123,28 @@ def export_scan(scan_id: str, api_key: str = Depends(require_api_key)):
     job = load_job(scan_id)
     if not job:
         raise HTTPException(404, "scan not found")
-    # Session material lives in auth.json, never in exports.
-    return JSONResponse(job.model_dump(mode="json", exclude={"auth"}))
+    # Session material lives in auth.json, never in exports — but the
+    # export must still say WHETHER auth was used (else authenticated
+    # vs anonymous runs are indistinguishable). Emit metadata only.
+    data = job.model_dump(mode="json", exclude={"auth"})
+    data["auth"] = _auth_export_meta(job)
+    return JSONResponse(data)
+
+
+def _auth_export_meta(job: ScanJob) -> dict:
+    """Auth metadata for exports: used/type only, never the secret."""
+    auth = job.auth
+    if not auth or (not (auth.cookies or auth.headers)):
+        return {"used": False, "type": None}
+    headers = {str(k).lower(): str(v) for k, v in (auth.headers or {}).items()}
+    authz = headers.get("authorization", "")
+    if authz.lower().startswith("bearer "):
+        return {"used": True, "type": "bearer"}
+    if auth.cookies:
+        return {"used": True, "type": "cookie"}
+    if authz:
+        return {"used": True, "type": "header"}
+    return {"used": True, "type": "header"}
 
 
 @app.get("/api/scans/{scan_id}/report")
@@ -135,6 +162,7 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
         f"Started: {job.started_at}",
         f"Finished: {job.finished_at}",
         f"Scanners: {', '.join(job.scanners_run)}",
+        f"Auth: {_auth_export_meta(job)['type'] + ' (session injected)' if _auth_export_meta(job)['used'] else 'anonymous'}",
         f"Quality gate: {job.gate}",
         *[f"  FAIL: {d}" for d in (job.gate_details or [])],
         "",
@@ -169,6 +197,13 @@ def report_scan(scan_id: str, api_key: str = Depends(require_api_key)):
             lines.append(f"  Recommendation: {f.recommendation}")
         if f.cve:
             lines.append(f"  CVE: {f.cve}")
+        if f.cwe:
+            lines.append(f"  CWE: {', '.join(f.cwe)}")
+        if f.owasp:
+            lines.append(f"  OWASP: {', '.join(f.owasp)}")
+        if f.cvss is not None:
+            est = " (estimated)" if (f.raw or {}).get("cvss_estimated") else ""
+            lines.append(f"  CVSS: {f.cvss}{est}")
         lines.append("")
     return PlainTextResponse("\n".join(lines))
 
@@ -384,7 +419,11 @@ def report_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
     lines.append("-" * 40)
     for f in job.findings:
         sev = f.severity.value.upper()
-        extra = f" (CVSS {f.cvss})" if f.cvss is not None else ""
+        if f.cvss is not None:
+            est = " (estimated)" if (f.raw or {}).get("cvss_estimated") else ""
+            extra = f" (CVSS {f.cvss}{est})"
+        else:
+            extra = ""
         if (f.raw or {}).get("likely_test_fixture"):
             extra += " [likely test fixture]"
         lines.append(f"[{sev}]{extra} {f.title}")
@@ -417,6 +456,8 @@ def report_repo_scan(scan_id: str, api_key: str = Depends(require_api_key)):
             lines.append(f"  CVE: {f.cve}")
         if f.cwe:
             lines.append(f"  CWE: {', '.join(f.cwe)}")
+        if f.owasp:
+            lines.append(f"  OWASP: {', '.join(f.owasp)}")
         lines.append("")
     return PlainTextResponse("\n".join(lines))
 

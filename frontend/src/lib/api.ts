@@ -1,7 +1,7 @@
 // Typed wrapper around the existing OctoScan FastAPI endpoints.
 // Mirrors the vanilla fetch() logic from app/static/index.html.
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export interface Finding { severity: Severity; scanner: string; title: string; location?: string; cvss?: number | null; cwe?: string[]; cve?: string | null; }
+export interface Finding { severity: Severity; scanner: string; title: string; location?: string; cvss?: number | null; cwe?: string[]; cve?: string | null; owasp?: string[]; raw?: { cvss_estimated?:boolean; [k:string]:unknown }; }
 export interface WebJob {
   id: string; target_url: string; status: 'queued' | 'running' | 'paused' | 'completed' | 'failed';
   created_at: string; findings: Finding[]; scanners_run: string[]; gate?: string; ai?: boolean;

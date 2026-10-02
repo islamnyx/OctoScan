@@ -239,8 +239,10 @@
       const gate = (j.gate || "unknown").toUpperCase();
       const passed = gate === "PASSED" || gate === "PASS";
       const sevCell = (s) => `<span class="sev ${esc(s)}">${esc(s.toUpperCase())}</span>`;
+      const cvssCell = (f) => f.cvss ?? "n/a";
+      const cvssEst = (f) => ((f.raw || {}).cvss_estimated ? " (est.)" : "");
       const rows = (j.findings || []).filter(f => f.severity !== "info").map(f =>
-        `<tr><td>${sevCell(f.severity)}</td><td><b>${esc(f.title)}</b><br/>${esc((f.description||"").slice(0,300))}<br/><i>${esc(f.cve||"")}</i></td><td>${esc(f.location)}<br/>${esc(f.scanner)}</td><td>CVSS ${esc(f.cvss ?? "n/a")}<br/>${esc((f.cwe||[]).join(", "))} ${esc((f.owasp||[]).join(", "))}<br/>${esc((f.recommendation||"n/a").slice(0,300))}</td></tr>`
+        `<tr><td>${sevCell(f.severity)}</td><td><b>${esc(f.title)}</b><br/>${esc((f.description||"").slice(0,300))}<br/><i>${esc(f.cve||"")}</i></td><td>${esc(f.location)}<br/>${esc(f.scanner)}</td><td>CVSS ${esc(cvssCell(f))}${esc(cvssEst(f))}<br/>${esc((f.cwe||[]).join(", "))} ${esc((f.owasp||[]).join(", "))}<br/>${esc((f.recommendation||"n/a").slice(0,300))}</td></tr>`
       ).join("");
       document.getElementById("print-report").innerHTML = `
         <div class="rep-head"><img src="/static/logo.png" alt="OctoScan" /><div><p class="rep-title">Octo<span>Scan</span> Security Report</p><p class="rep-sub">OctoSec Labs · ${esc(isRepo ? "Codebase" : "Web application")} scan · ${new Date().toLocaleString()}</p></div></div>
@@ -323,7 +325,7 @@
       const topBox = document.getElementById("topfix");
       if (actionable.length) {
         topBox.innerHTML = `<div class="topfix"><h3 style="margin:0 0 6px;font-size:13px;">Fix first — top ${Math.min(5, actionable.length)}</h3><ol style="margin:4px 0 2px;padding-left:20px;">`
-          + actionable.slice(0,5).map(f => { const s = (f.cvss ?? null) !== null ? ` · CVSS ${esc(String(f.cvss))}` : ""; return `<li><a style="color:var(--text);text-decoration:none;" href="#f-${esc(f.id)}"><b>${esc(f.severity)}</b>: ${esc((f.title || "").slice(0,110))}${s}</a><div style="color:var(--muted);font-size:12px;">${esc((f.recommendation || "").slice(0,160))}</div></li>`; }).join("") + `</ol></div>`;
+          + actionable.slice(0,5).map(f => { const est = ((f.raw||{}).cvss_estimated ? " (est.)" : ""); const s = (f.cvss ?? null) !== null ? ` · CVSS ${esc(String(f.cvss))}${esc(est)}` : ""; return `<li><a style="color:var(--text);text-decoration:none;" href="#f-${esc(f.id)}"><b>${esc(f.severity)}</b>: ${esc((f.title || "").slice(0,110))}${s}</a><div style="color:var(--muted);font-size:12px;">${esc((f.recommendation || "").slice(0,160))}</div></li>`; }).join("") + `</ol></div>`;
       } else topBox.innerHTML = "";
 
       const aiBox = document.getElementById("ai-result"); aiBox.innerHTML = "";
@@ -356,7 +358,7 @@
           const tr = document.createElement("tr"); tr.id = "f-" + f.id;
           const raw = f.raw || {};
           const metaBits = [];
-          if (f.cvss !== null && f.cvss !== undefined) metaBits.push("CVSS " + esc(String(f.cvss)));
+          if (f.cvss !== null && f.cvss !== undefined) metaBits.push("CVSS " + esc(String(f.cvss)) + (((f.raw||{}).cvss_estimated) ? " (est.)" : ""));
           (f.cwe || []).forEach(c => metaBits.push(esc(c))); (f.owasp || []).forEach(o => metaBits.push(esc(o)));
           const meta = metaBits.length ? `<div class="f-meta">${metaBits.join(" · ")}</div>` : "";
           tr.innerHTML = `<td><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span></td>`

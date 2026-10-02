@@ -59,7 +59,9 @@ def test_prefilter_drops_dev_fixtures_info_and_review():
         _f("keep2", scanner="osv", sev=Severity.medium, scope="runtime"),
     ]
     out = prefilter(findings)
-    assert [f.id for f in out] == ["keep1", "keep2"]
+    # Stable finding IDs (normalize.stable_id) replace caller-set ids;
+    # assert survival by location (unique per row in this fixture).
+    assert [f.location for f in out] == ["repo#app/keep1.js:10", "repo#app/keep2.js:10"]
 
 
 def test_prefilter_keeps_priority_order_and_limit():

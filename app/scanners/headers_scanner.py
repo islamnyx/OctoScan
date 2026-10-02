@@ -98,6 +98,8 @@ class HeadersScanner(BaseScanner):
     def _parse(self, headers: dict, status: int, cors_headers: dict | None = None) -> list[Finding]:
         lowered = {k.lower(): v for k, v in headers.items()}
         findings: list[Finding] = []
+        request_line = f"GET {self.target_url}"
+        present = sorted(lowered.keys())[:20]
 
         for check in CHECKS:
             h = check["header"]
@@ -115,7 +117,10 @@ class HeadersScanner(BaseScanner):
                         evidence=f"HTTP {status}, header '{h}' absent",
                         location=self.target_url,
                         recommendation=check["recommendation"],
-                        raw={"header": h, "status": status},
+                        request=request_line,
+                        response=f"HTTP {status}; present: {', '.join(present)}",
+                        raw={"header": h, "status": status, "finding_class": "missing-security-header",
+                             "live_verified": True},
                     )
                 )
 
@@ -140,7 +145,10 @@ class HeadersScanner(BaseScanner):
                         evidence=set_cookie[:300],
                         location=self.target_url,
                         recommendation="Set cookies with Secure; HttpOnly; SameSite=Lax (or Strict).",
-                        raw={"header": "set-cookie", "missing": missing},
+                        request=request_line,
+                        response=f"HTTP {status}; Set-Cookie without: {', '.join(missing)}",
+                        raw={"header": "set-cookie", "missing": missing, "finding_class": "cookie-flags",
+                             "live_verified": True},
                     )
                 )
 
@@ -164,7 +172,10 @@ class HeadersScanner(BaseScanner):
                     evidence=f"Origin: https://evil.example -> ACAO: {acao[:120]}",
                     location=self.target_url,
                     recommendation="Never reflect arbitrary Origins. Allow-list trusted origins server-side; avoid ACAO:* with credentials.",
-                    raw={"header": "access-control-allow-origin", "value": acao},
+                    request="GET " + self.target_url + " (Origin: https://evil.example)",
+                    response=f"ACAO: {acao[:120]}" + ("; ACAC: true" if creds else ""),
+                    raw={"header": "access-control-allow-origin", "value": acao, "finding_class": "cors",
+                         "live_verified": True},
                 )
             )
 
@@ -177,10 +188,12 @@ class HeadersScanner(BaseScanner):
                     title=f"Server banner disclosed: {server[:60]}",
                     severity=Severity.info,
                     description="Server header reveals software/version. Useful for targeted attacks.",
-                    evidence=server,
-                    location=self.target_url,
-                    recommendation="Minimize Server header (e.g. server_tokens off; or strip via proxy).",
-                    raw={"header": "server", "value": server},
+                        evidence=server,
+                        location=self.target_url,
+                        recommendation="Minimize Server header (e.g. server_tokens off; or strip via proxy).",
+                        request=request_line,
+                        response=f"HTTP {status}; Server: {server[:80]}",
+                        raw={"header": "server", "value": server, "live_verified": True},
                 )
             )
 

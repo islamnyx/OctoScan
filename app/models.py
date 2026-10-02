@@ -37,7 +37,23 @@ class Finding(BaseModel):
     # Empty for scanners without taxonomy data; defaults keep old jobs loadable.
     cwe: list[str] = Field(default_factory=list)
     owasp: list[str] = Field(default_factory=list)
+    # Request/response snippets (what was sent, what came back). Bounded
+    # excerpts set by each scanner; "" when the scanner has nothing
+    # truthful to store. Never fabricated.
+    request: str = ""
+    response: str = ""
+    # Trust signal for agents/consumers: 0.0-1.0 with basis in
+    # raw["confidence_basis"]. verified True = live-confirmed,
+    # None = unverified (default), False reserved for refuted.
+    confidence: float = 0.0
+    verified: bool | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+# Scan JSON schema version. Bumped when the persisted shape changes in a
+# way consumers must know about (2 = stable IDs, req/resp snippets,
+# confidence/verified, auth export meta). Old files load with 1.
+SCHEMA_VERSION = 2
 
 
 WEB_SCANNER_CHOICES = {"zap", "headers", "nmap", "testssl", "nikto", "nuclei", "sensitive-files"}
@@ -130,6 +146,7 @@ class ScanJob(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:16])
     target_url: str
     status: ScanStatus = ScanStatus.queued
+    schema_version: int = 1
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -194,6 +211,7 @@ class RepoScanJob(BaseModel):
     branch: str | None = None
     ai_requested: bool = False
     status: ScanStatus = ScanStatus.queued
+    schema_version: int = 1
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: datetime | None = None
     finished_at: datetime | None = None

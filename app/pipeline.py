@@ -16,8 +16,9 @@ from app.scanners.nmap_scanner import NmapScanner
 from app.scanners.nuclei_scanner import NucleiScanner
 from app.scanners.testssl_scanner import TestsslScanner
 from app.scanners.zap_scanner import ZapScanner
-from app.sensitive import flag_sensitive_files, probe_wellknown
+from app.sensitive import dedupe_listings, flag_sensitive_files, probe_wellknown
 from app.store import load_job, save_job
+from app.verify import verify_findings
 
 # ZAP first: it needs a fresh daemon/session + most memory, and its
 # spider output (Sites tree) is most reliable before nuclei/nikto hammer
@@ -34,6 +35,9 @@ SEQUENTIAL_ORDER = [
 
 def finalize_scan(job: ScanJob, findings: list[Finding], errors: list[str], *, early: bool = False) -> ScanJob:
     """Checkpoint + close out a job. Shared by the worker and the finish endpoint."""
+    from app.models import SCHEMA_VERSION
+
+    job.schema_version = SCHEMA_VERSION
     job.findings = prioritize(findings)
     # DAST quality gate (skill Step 4): FAIL on exploitable rules
     # (XSS/SQLi pluginIds, high/critical active findings), WARN on
@@ -99,9 +103,14 @@ def run_scan(scan_id: str) -> ScanJob:
         # Strict pause/finish: long steps poll this and raise ScanStopped
         # so the buttons act within seconds, not at the next checkpoint.
         scanner.stop_check = _stopped
+        t0 = time.time()
         findings_result = scanner.run()
+        elapsed = round(time.time() - t0, 1)
         coverage_result = dict(getattr(scanner, "coverage", None) or {})
-        activity.log(job.id, f"{scanner_cls.name}: finished — {len(findings_result)} finding(s)", kind="done")
+        # Every scanner records at least its wall time — durations are
+        # coverage, not findings.
+        coverage_result["duration_s"] = elapsed
+        activity.log(job.id, f"{scanner_cls.name}: finished — {len(findings_result)} finding(s) in {elapsed}s", kind="done")
         return scanner.name, findings_result, coverage_result
 
     def _stop_now(reason: str | None, operation: str) -> ScanJob:
@@ -156,8 +165,7 @@ def run_scan(scan_id: str) -> ScanJob:
                     scanner_name, result, coverage = _run(cls)
                     job.scanners_run.append(scanner_name)
                     findings.extend(result)
-                    if coverage:
-                        job.coverage[scanner_name] = coverage
+                    job.coverage[scanner_name] = coverage
                     break
                 except ScanStopped as stopped:
                     return _stop_now(stopped.reason, cls.name)
@@ -183,16 +191,39 @@ def run_scan(scan_id: str) -> ScanJob:
             save_job(job)
             time.sleep(2)  # let CPU/thermals settle between heavy scanners
     else:
-        with ThreadPoolExecutor(max_workers=min(max_parallel, len(ordered) or 1)) as pool:
-            futures = {pool.submit(_run, cls): cls.name for cls in ordered}
+        # Parallel mode: ZAP still runs FIRST and alone (fresh daemon
+        # session, peak memory, spider output that later scanners reuse).
+        # Nikto/Nuclei/headers/nmap/testssl then run alongside each other.
+        # sensitive-files stays a sequential post-pass (needs all findings).
+        zap_first = [c for c in ordered if c is ZapScanner]
+        rest = [c for c in ordered if c is not ZapScanner]
+        for cls in zap_first:
+            stop = _stopped()
+            if stop == "finish":
+                return finalize_scan(job, findings, errors, early=True)
+            if stop == "pause":
+                return _pause(job, findings, errors)
+            try:
+                scanner_name, result, coverage = _run(cls)
+                job.scanners_run.append(scanner_name)
+                findings.extend(result)
+                job.coverage[scanner_name] = coverage
+            except ScanStopped as stopped:
+                return _stop_now(stopped.reason, cls.name)
+            except Exception as exc:
+                errors.append(f"{cls.name}: {exc}")
+                activity.log(job.id, f"{cls.name}: failed — {str(exc)[:200]}", kind="error")
+            job.findings = prioritize(findings)
+            save_job(job)
+        with ThreadPoolExecutor(max_workers=min(max_parallel, len(rest) or 1)) as pool:
+            futures = {pool.submit(_run, cls): cls.name for cls in rest}
             for future in as_completed(futures):
                 name = futures[future]
                 try:
                     scanner_name, result, coverage = future.result()
                     job.scanners_run.append(scanner_name)
                     findings.extend(result)
-                    if coverage:
-                        job.coverage[scanner_name] = coverage
+                    job.coverage[scanner_name] = coverage
                 except ScanStopped as stopped:
                     pool.shutdown(wait=False, cancel_futures=True)
                     return _stop_now(stopped.reason, name)
@@ -217,7 +248,9 @@ def run_scan(scan_id: str) -> ScanJob:
     want_sensitive = not requested or "sensitive-files" in requested
     if "sensitive-files" not in job.scanners_run and not want_sensitive:
         job.scanners_run.append("sensitive-files")
-        # Intentionally no findings: user deselected this check.
+        # Intentionally no findings: user deselected this check — but say
+        # so in coverage instead of silently omitting it.
+        job.coverage["sensitive-files"] = {"status": "skipped", "reason": "deselected in picker"}
         pass
     elif "sensitive-files" not in job.scanners_run:
         stop = _stopped()
@@ -230,20 +263,50 @@ def run_scan(scan_id: str) -> ScanJob:
             auth_pair = (
                 (dict(job.auth.headers), dict(job.auth.cookies)) if job.auth else None
             )
-            sensitive = flag_sensitive_files(job.target_url, findings, auth_pair)
+            sens_t0 = time.time()
+            sensitive, sens_meta = flag_sensitive_files(job.target_url, findings, auth_pair)
             # Active probes: high-value paths no crawler reliably discovers
-            # (/.git/HEAD, /.git/config, /.env, /.DS_Store). Runs even when
-            # no other scanner found any URL (e.g. headers-only scans).
+            # (/.git/HEAD, /.git/config, /.env, /.DS_Store, /ftp/). Runs
+            # even when no other scanner found any URL (headers-only scans).
             try:
-                sensitive += probe_wellknown(job.target_url, auth_pair)
+                probed = probe_wellknown(job.target_url, auth_pair)
+                sensitive += probed
             except Exception as exc:
                 errors.append(f"sensitive-files-probe: {exc}")
+                probed = []
+            # /ftp (discovered) vs /ftp/ (probed) are the same directory.
+            sensitive = dedupe_listings(sensitive)
+            job.coverage["sensitive-files"] = {
+                "status": "completed",
+                "wellknown_hits": len(probed),
+                "flagged": len(sensitive),
+                "duration_s": round(time.time() - sens_t0, 1),
+                **({"catchall": sens_meta} if sens_meta else {}),
+            }
             if sensitive:
+                findings.extend(sensitive)
                 job.findings = prioritize(job.findings + sensitive)
             job.scanners_run.append("sensitive-files")
         except Exception as exc:
             errors.append(f"sensitive-files: {exc}")
     if prior_error and prior_error not in errors:
         errors = [prior_error] + errors
+    # Live verification (app/verify.py): confirm SQLi findings with a
+    # differential retest and probe auth-error-tagged logins. Bounded
+    # (a handful of read-only requests), fail-open — results annotate
+    # findings, never gate them. Skipped when the user already stopped.
+    # Prioritize first: verify keys off merged state (review tags,
+    # affected_urls) which only exists post-dedupe/escalation.
+    stop = _stopped()
+    if stop:
+        return _stop_now(stop, "verify")
+    try:
+        activity.current(job.id, "verify: confirming key findings…")
+        findings = verify_findings(prioritize(findings), job.auth, _stopped)
+    except Exception as exc:
+        activity.log(job.id, f"verify: skipped ({str(exc)[:150]})", kind="error")
+    stop = _stopped()
+    if stop:
+        return _stop_now(stop, "verify")
     activity.log(job.id, f"scan finished", kind="done")
     return finalize_scan(job, findings, errors)

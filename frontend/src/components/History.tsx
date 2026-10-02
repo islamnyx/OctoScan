@@ -3,7 +3,7 @@ import { Sparkles } from 'lucide-react';
 import type { RepoJob, WebJob } from '../lib/api';
 import { Badge, cvssTone, statusTone } from './ui/controls';
 
-function JobRow({ label, sub, status, ai, cvss, href }: { label: string; sub: string; status: string; ai?: boolean; cvss?: number | null; href: string }) {
+function JobRow({ label, sub, status, ai, cvss, est, href }: { label: string; sub: string; status: string; ai?: boolean; cvss?: number | null; est?: boolean; href: string }) {
   return (
     <tr className="cursor-pointer hover:bg-[rgba(255,106,44,0.05)]" onClick={() => { location.href = href; }}>
       <td className="border-b border-border-line px-4 py-2.5">
@@ -11,7 +11,7 @@ function JobRow({ label, sub, status, ai, cvss, href }: { label: string; sub: st
           <span className="break-all font-semibold text-ink">{label}</span>
           <Badge tone={statusTone(status)}>{status}</Badge>
           {ai && <span className="rounded bg-accent/10 px-1.5 font-mono text-xs font-semibold text-accent">AI</span>}
-          {cvss != null && <Badge tone={cvssTone(cvss)}>CVSS {cvss.toFixed(1)}</Badge>}
+          {cvss != null && <Badge tone={cvssTone(cvss)}>CVSS {cvss.toFixed(1)}{est ? ' (est.)' : ''}</Badge>}
         </div>
         <div className="font-mono text-xs text-ink-dim">{sub}</div>
       </td>
@@ -33,8 +33,9 @@ export function HistoryTables({ web, repo }: { web: WebJob[]; repo: RepoJob[] })
         <table className="w-full border-collapse text-[12.5px]"><tbody>
           {wf.length ? wf.map((j) => {
             const running = ['running', 'queued', 'paused'].includes(j.status);
-            const top = [...(j.findings || [])].sort((a, b) => (b.cvss ?? -1) - (a.cvss ?? -1))[0]?.cvss;
-            return <JobRow key={j.id} label={j.target_url} status={j.status} ai={!!j.ai} cvss={top} sub={`${(j.findings || []).length} findings · ${new Date(j.created_at).toLocaleString()}`} href={`/${running ? `scans/${encodeURIComponent(j.id)}/status` : `scans/${encodeURIComponent(j.id)}`}`} />;
+            const topF = [...(j.findings || [])].sort((a, b) => (b.cvss ?? -1) - (a.cvss ?? -1))[0];
+            const top = topF?.cvss; const est = !!(topF?.raw as { cvss_estimated?: boolean } | undefined)?.cvss_estimated;
+            return <JobRow key={j.id} label={j.target_url} status={j.status} ai={!!j.ai} cvss={top} est={est} sub={`${(j.findings || []).length} findings · ${new Date(j.created_at).toLocaleString()}`} href={`/${running ? `scans/${encodeURIComponent(j.id)}/status` : `scans/${encodeURIComponent(j.id)}`}`} />;
           }) : <tr><td className="px-4 py-3.5 text-[12.5px] text-ink-dim">No web scans yet — launch one above.</td></tr>}
         </tbody></table>
       </div>

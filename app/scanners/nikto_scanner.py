@@ -10,9 +10,11 @@ from app.models import Finding, Severity
 from app.scanners.base import BaseScanner, assert_target_reachable
 
 
-# Nikto emits no severity — map by ID/keywords. Header findings (013587)
+# Nikto emits no severity — map by ID/keywords. Header findings (013587,
+# one per missing header, and 007352, the X-Content-Type-Options check)
 # duplicate our fast headers scanner, so keep them info-only here.
 HEADER_DUP_IDS = {"013587"}
+HEADER_CLASS_IDS = {"013587", "007352"}
 INFO_IDS = {"999990", "007342", "999957", "999956", "999955"}
 
 # Verified 2026-09-11 on Juice Shop (Node): /JAMonAdmin.jsp, /.htpasswd,
@@ -248,6 +250,7 @@ class NiktoScanner(BaseScanner):
     def _build_findings(self, items: list[dict]) -> list[Finding]:
         findings: list[Finding] = []
         speculative_catchall: list[dict] = []
+        catchall_proven: list[dict] = []
         connect_failures: list[str] = []
         seen: set[tuple[str, str, str, str]] = set()
         for item in items:
@@ -296,64 +299,52 @@ class NiktoScanner(BaseScanner):
                 continue
             fp_note = ""
             if is_catchall:
-                severity = Severity.info
-                fp_note = (
-                    " [Likely false positive: this path returns content identical to /. "
-                    "The server serves its SPA shell for unknown paths, so no such file "
-                    "was actually fingerprinted. Verify manually before acting.]"
+                # Proven SPA shell: fold into the single aggregated
+                # catch-all row instead of one info row per path — the
+                # per-path rows (.htpasswd, JAMon, histories) are the
+                # "noise unchanged" complaint.
+                catchall_proven.append(
+                    {"nikto_id": vid, "method": method, "url": rel_url,
+                     "location": location, "msg": msg}
                 )
-                recommendation = (
-                    "Likely false positive on SPA catch-all servers — confirm by fetching "
-                    "the path and diffing against /. " + recommendation
-                )
+                continue
             findings.append(
                 Finding(
                     scanner=self.name,
                     title=f"Nikto {vid}: {short}" if vid else short,
                     severity=severity,
-                    description=description + fp_note,
+                    description=description,
                     evidence=f"{method} {rel_url}".strip(),
                     location=location,
                     recommendation=recommendation,
-                    raw={"nikto_id": vid, "method": method, "url": rel_url},
+                    request=f"{method} {rel_url}".strip() or location,
+                    raw={"nikto_id": vid, "method": method, "url": rel_url,
+                         "finding_class": "missing-security-header" if vid in HEADER_CLASS_IDS else None,
+                         "live_verified": True},
                 )
             )
-        if speculative_catchall:
-            # One row instead of N: guessed filenames all returned the SPA
-            # shell (HTTP 200, body identical to /). Genuinely distinct
-            # hits (e.g. /ftp/ directory listing) are NOT in this bucket —
-            # they failed the catch-all check and stay individual above.
-            paths = sorted({e["url"] for e in speculative_catchall})
-            locs = sorted({e["location"] for e in speculative_catchall})
-            ids = sorted({e["nikto_id"] for e in speculative_catchall if e["nikto_id"]})
-            n = len(paths)
-            findings.append(
-                Finding(
-                    scanner=self.name,
-                    title=f"Nikto: {n} speculative paths returned non-404 responses (likely SPA catch-all)",
-                    severity=Severity.info,
-                    description=(
-                        f"{n} guessed paths returned HTTP 200 with content identical to /. "
-                        "The server serves its SPA shell for unknown paths, so these are "
-                        "likely false positives, not real files. Review list: "
-                        + ", ".join(paths)
-                    ),
-                    evidence="GET " + ", ".join(paths),
-                    location=self.target_url,
-                    recommendation=(
-                        "Likely SPA catch-all noise — spot-check one path by diffing against / "
-                        "before acting. No action needed if bodies match."
-                    ),
-                    raw={
-                        "nikto_ids": ids,
-                        "urls": paths,
-                        "affected_urls": locs,
-                        "merged_count": n,
-                        "merged_concept": "nikto-speculative-paths",
-                    },
-                )
-            )
-        if connect_failures and not findings and not speculative_catchall:
+        folded = speculative_catchall + catchall_proven
+        if folded:
+            # No finding: SPA-shell guesses are scan metadata, not vulns.
+            # Recorded in coverage (like nmap/testssl skips) instead of an
+            # info row that pollutes counts, radar and sunburst.
+            paths = sorted({e["url"] for e in folded})
+            locs = sorted({e["location"] for e in folded})
+            ids = sorted({e["nikto_id"] for e in folded if e["nikto_id"]})
+            named = sorted({f"{e['nikto_id']}: {e['url']}" for e in catchall_proven if e.get("msg")})
+            self.coverage["spa_catchall"] = {
+                "status": "not-applicable",
+                "reason": (
+                    f"{len(paths)} guessed paths returned HTTP 200 with content identical to / "
+                    "(SPA shell served for unknown paths, not real files)"
+                    + (f". Named claims proven false: {'; '.join(named)}." if named else "")
+                ),
+                "paths": paths,
+                "affected_urls": locs,
+                "nikto_ids": ids,
+                "count": len(paths),
+            }
+        if connect_failures and not findings and not folded:
             # Probe to sharpen the message (still down vs transient), then
             # raise either way — a run that never connected has no findings.
             try:
